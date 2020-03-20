@@ -1,0 +1,32 @@
+default: &DEFAULT
+  train_dataset_path: config/train.txt
+  eval_dataset_path: config/eval.txt
+
+  root_path: /media/dong/5175C8D3107A9BF2/gridcorpus/todir7 # used by make_list
+  train_by_eval: 9  # train/eval
+
+  sample_file:  # used by generator
+    landmark_name: landmark.txt
+    wav_name: audio.wav
+    bfmcoeff_name: bfmcoeff.txt
+
+  mean_file: config/mean.npy
+  components_file: config/components.npy
+  pretrain_dir: /home/dong/workplace/allmodels
+
+  mel:
+    sample_rate: 16000
+    num_mel_bins: 80
+    win_length: 512
+    fft_length: 512
+    hop_step: 128
+
+  frame_rate: 25
+
+  training:
+    epochs: 100000
+    drop_rate: 0.25
+    learning_rate: 0.001
+    max_grad_norm: 50
+    decay_steps: 1000
+    decay_rate: 0.95
