@@ -244,28 +244,6 @@ class Schedule:
               img = cv2.imread(os.path.join(root, "{}.jpg".format(i)))
               bfmcoeff, _, _ = self.get_bfm_coeff(lm3D, sess, images, coeff, img, ps)
 
-              face_shape, face_texture, face_color, face_projection, z_buffer, landmarks_2d, translation = reconstruct_mesh.Reconstruction(
-                  bfmcoeff, facemodel)
-
-              shape = np.squeeze(face_shape, (0))
-              color = np.squeeze(face_color, (0))
-              color = np.clip(color, 0, 255).astype(np.int32)
-              shape[:, :2] = 112 - shape[:, :2] * 112
-
-              new_image = np.zeros((224 * 224 * 3), dtype=np.uint8)
-              face_mask = np.zeros((224 * 224), dtype=np.uint8)
-
-              vertices = shape.reshape(-1).astype(np.float32).copy()
-              triangles = (facemodel.tri - 1).reshape(-1).astype(np.int32).copy()
-              colors = color.reshape(-1).astype(np.float32).copy()
-              depth_buffer = (np.zeros((224 * 224)) - 99999.0).astype(np.float32)
-              mesh_core_cython.render_colors_core(new_image, face_mask, vertices, triangles, colors, depth_buffer,
-                                                  facemodel.tri.shape[0], 224, 224, 3)
-              new_image = new_image.reshape([224, 224, 3])
-
-              new_image = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
-              cv2.imwrite('out/{}.jpg'.format(i), new_image)
-
               bfmcoeff_file.write('{}\n'.format(','.join(bfmcoeff[0].astype(str))))
             bfmcoeff_file.close()
 

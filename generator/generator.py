@@ -528,25 +528,29 @@ class Pix2PixDataGenerator(DataGenerator):
       img_count = int(img_count)
 
       if (img_count > 0):
-        imgs = []
+        inputs = np.zeros([3, 256, 256, 3], dtype=np.float32)
+
         for i in range(img_count):
           img = image_loader.get_data(os.path.join(folder, '{}.jpg'.format(i)))
           if (img is not None):
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            imgs.append(img)
-        imgs = np.array(imgs)
+            target = img[:, :256, :]
+            input = img[:, 256:512, :]
+            mask = img[:, 512:, :]
 
-        if (imgs.shape[0] == img_count):
-          targets = imgs[:, :, :256, :]
-          inputs = imgs[:, :, 256:512, :]
-          masks = imgs[:, :, 512:, :]
-          ## padding 2 empty frames before image sequence.
-          inputs = np.concatenate([np.zeros([2, inputs.shape[1], inputs.shape[2], inputs.shape[3]], dtype=inputs.dtype), inputs], axis=0)
-          for i in range(img_count):
-            input_slice = inputs[i: i + 3, ...]
-            input_slice = input_slice.transpose((1, 2, 0, 3))
-            input_slice = input_slice.reshape([256, 256, 9])
-            yield input_slice, targets[i, ...], masks[i, ...]
+            if(i==0):
+              inputs[2, ...] = input
+            elif(i==1):
+              inputs[1, ...] = inputs[2, ...]
+              inputs[2, ...] = input
+            else:
+              inputs[0, ...] = inputs[1, ...]
+              inputs[1, ...] = inputs[2, ...]
+              inputs[2, ...] = input
+
+            input = inputs.transpose((1, 2, 0, 3))
+            input = input.reshape([256, 256, 9])
+            yield input, target, mask
 
   def get_dataset(self):
     self.set_params(self.__params)
