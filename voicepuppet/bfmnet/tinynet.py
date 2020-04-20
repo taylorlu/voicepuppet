@@ -177,22 +177,22 @@ class MfccNet:
       net = _inverted_residual_block(net, 64, stride=[1, 1], scope='block2_1')
       end_points['block2'] = net
 
-      net = _inverted_residual_block(net, 96, stride=[1, 1], scope='block3_0')  # size/8
+      net = _inverted_residual_block(net, 128, stride=[1, 1], scope='block3_0')  # size/8
       net = tf.layers.max_pooling2d(net, [2, 2], [1, 2], padding='same')
-      net = _inverted_residual_block(net, 96, stride=[1, 1], scope='block3_1')
-      net = _inverted_residual_block(net, 96, stride=[1, 1], scope='block3_2')
+      net = _inverted_residual_block(net, 128, stride=[1, 1], scope='block3_1')
+      net = _inverted_residual_block(net, 128, stride=[1, 1], scope='block3_2')
       end_points['block3'] = net
 
-      net = _inverted_residual_block(net, 128, stride=[1, 1], scope='block4_0')  # size/16
+      net = _inverted_residual_block(net, 192, stride=[1, 1], scope='block4_0')  # size/16
       net = tf.layers.max_pooling2d(net, [2, 2], [1, 2], padding='same')
-      net = _inverted_residual_block(net, 128, stride=[1, 1], scope='block4_1')
-      net = _inverted_residual_block(net, 128, stride=[1, 1], scope='block4_2')
-      net = _inverted_residual_block(net, 128, stride=[1, 1], scope='block4_3')
+      net = _inverted_residual_block(net, 192, stride=[1, 1], scope='block4_1')
+      net = _inverted_residual_block(net, 192, stride=[1, 1], scope='block4_2')
+      net = _inverted_residual_block(net, 192, stride=[1, 1], scope='block4_3')
       end_points['block4'] = net
 
-      net = _inverted_residual_block(net, 192, stride=[1, 1], scope='block5_0')
-      net = _inverted_residual_block(net, 192, stride=[1, 1], scope='block5_1')
-      net = _inverted_residual_block(net, 192, stride=[1, 1], scope='block5_2')
+      net = _inverted_residual_block(net, 256, stride=[1, 1], scope='block5_0')
+      net = _inverted_residual_block(net, 256, stride=[1, 1], scope='block5_1')
+      net = _inverted_residual_block(net, 256, stride=[1, 1], scope='block5_2')
       end_points['block5'] = net
 
       net = _inverted_residual_block(net, 256, stride=[1, 1], scope='block6_0')  # size/32
@@ -230,7 +230,7 @@ class ThinNet:
       end_points = {}
       net = inputs
 
-      net = _conv2d(net, 32, [3, 3], stride=[1, 1], scope='block0_0')  # size/2
+      net = _conv2d(net, 32, [3, 3], stride=[2, 2], scope='block0_0')  # size/2
       end_points['block0'] = net
 
       net = _inverted_residual_block(net, 16, stride=[1, 1], expansion=1, scope='block1_0')
@@ -276,7 +276,7 @@ class ThinNet:
 
 
 if (__name__ == '__main__'):
-  inputs = tf.placeholder(shape=[None, 100, 256, 1], dtype=tf.float32)
+  inputs = tf.placeholder(shape=[None, 512, 512, 3], dtype=tf.float32)
 
   thinNet = ThinNet(136, is_training=True)
   output, end_points = thinNet(inputs)
@@ -291,17 +291,17 @@ if (__name__ == '__main__'):
   print('ThinNet block7 = {}'.format(end_points['block7'].shape))
   print('ThinNet block8 = {}'.format(end_points['block8'].shape))
 
-  print('====' * 10)
+  # print('====' * 10)
 
-  mfccNet = MfccNet(136, is_training=True)
-  output, end_points = mfccNet(inputs)
+  # mfccNet = MfccNet(136, is_training=True)
+  # output, end_points = mfccNet(inputs)
 
-  print('MfccNet output = {}'.format(output.shape))
-  print('MfccNet block1 = {}'.format(end_points['block1'].shape))
-  print('MfccNet block2 = {}'.format(end_points['block2'].shape))
-  print('MfccNet block3 = {}'.format(end_points['block3'].shape))
-  print('MfccNet block4 = {}'.format(end_points['block4'].shape))
-  print('MfccNet block5 = {}'.format(end_points['block5'].shape))
-  print('MfccNet block6 = {}'.format(end_points['block6'].shape))
-  print('MfccNet block7 = {}'.format(end_points['block7'].shape))
-  print('MfccNet block8 = {}'.format(end_points['block8'].shape))
+  # print('MfccNet output = {}'.format(output.shape))
+  # print('MfccNet block1 = {}'.format(end_points['block1'].shape))
+  # print('MfccNet block2 = {}'.format(end_points['block2'].shape))
+  # print('MfccNet block3 = {}'.format(end_points['block3'].shape))
+  # print('MfccNet block4 = {}'.format(end_points['block4'].shape))
+  # print('MfccNet block5 = {}'.format(end_points['block5'].shape))
+  # print('MfccNet block6 = {}'.format(end_points['block6'].shape))
+  # print('MfccNet block7 = {}'.format(end_points['block7'].shape))
+  # print('MfccNet block8 = {}'.format(end_points['block8'].shape))

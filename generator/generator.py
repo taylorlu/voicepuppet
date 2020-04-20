@@ -243,7 +243,6 @@ class ATNetDataGenerator(DataGenerator):
 
     return dataset
 
-
 class VGNetDataGenerator(DataGenerator):
   def __init__(self, config_path):
 
@@ -388,8 +387,8 @@ class BFMNetDataGenerator(DataGenerator):
     ### Image sequence length when training
     params.add_hparam('max_squence_len', 30)
     params.add_hparam('min_squence_len', 20)
-    params.add_hparam('shuffle_bufsize', 100)
-    params.add_hparam('batch_size', 16)
+    params.add_hparam('shuffle_bufsize', 1000)
+    params.add_hparam('batch_size', 8)
 
     return params
 
@@ -424,6 +423,7 @@ class BFMNetDataGenerator(DataGenerator):
 
   def iterator(self):
     bfmcoeff_loader = BFMCoeffLoader()
+    landmark_loader = LandmarkLoader(norm_size=1)
     wav_loader = WavLoader(sr=self.sample_rate)
 
     random.shuffle(self.data_list)
@@ -433,12 +433,18 @@ class BFMNetDataGenerator(DataGenerator):
       img_count = int(img_count)
 
       bfmcoeffs = bfmcoeff_loader.get_data(os.path.join(folder, self.bfmcoeff_name))
+      landmark = landmark_loader.get_data(os.path.join(folder, self.landmark_name))
       pcm = wav_loader.get_data(os.path.join(folder, self.wav_name))
 
       if (bfmcoeffs is not None and
           pcm is not None and
+          landmark is not None and
           img_count > 0):
-        if (bfmcoeffs.shape[0] == img_count):
+        if (bfmcoeffs.shape[0] == img_count and
+          landmark.shape[0] == img_count):
+
+          ear = self.ear_compute(landmark)
+          ear = 1-ear
 
           # if (self.min_squence_len > img_count):
           #   continue
@@ -447,41 +453,46 @@ class BFMNetDataGenerator(DataGenerator):
           # else:
           #   rnd_len = random.randint(self.min_squence_len, self.max_squence_len)
 
-          rnd_len = 20
+          rnd_len = 24
           intervals = librosa.effects.split(pcm, top_db=20)
           sil_rm_start = intervals[0][0] // self.frame_wav_scale
           pcm = pcm[intervals[0][0]:]
           bfmcoeffs = bfmcoeffs[sil_rm_start:, :]
-          img_count = img_count - sil_rm_start
+          id_coeff = np.mean(bfmcoeffs[:, :80], 0, keepdims=True)
 
+          for i in range(bfmcoeffs.shape[0]):
+            bfmcoeffs[:,:80] = id_coeff
+
+          img_count = img_count - sil_rm_start
           slice_cnt = img_count // rnd_len
 
           for i in range(slice_cnt):
             bfmcoeff_slice = bfmcoeffs[i * rnd_len: (i + 1) * rnd_len, :]
+            ear_slice = ear[i * rnd_len: (i + 1) * rnd_len, :]
             # calculate the rational length of pcm in order to keep the alignment of mfcc and bfmcoeff sequence.
             pcm_start = int(i * rnd_len * self.frame_wav_scale)
             pcm_length = self.hop_step * (rnd_len * self.frame_mfcc_scale - 1) + self.win_length
             if (pcm.shape[0] < pcm_start + pcm_length):
               pcm = np.pad(pcm, (0, pcm_start + pcm_length - pcm.shape[0]), 'constant', constant_values=(0))
             pcm_slice = pcm[pcm_start: pcm_start + pcm_length]
-            yield bfmcoeff_slice, pcm_slice, bfmcoeff_slice.shape[0]
+            yield bfmcoeff_slice, ear_slice, pcm_slice, bfmcoeff_slice.shape[0]
 
-  def process_data(self, bfmcoeff, pcm, seq_len):
+  def process_data(self, bfmcoeff, ear, pcm, seq_len):
     mfcc = self.extract_mfcc(pcm)
-    return bfmcoeff, mfcc, seq_len
+    return bfmcoeff, ear, mfcc, seq_len
 
   def get_dataset(self):
     self.set_params(self.__params)
 
     dataset = tf.data.Dataset.from_generator(
         self.iterator,
-        output_types=(tf.float32, tf.float32, tf.int32),
-        output_shapes=([None, 257], [None], [])
+        output_types=(tf.float32, tf.float32, tf.float32, tf.int32),
+        output_shapes=([None, 257], [None, 1], [None], [])
     )
 
     dataset = dataset.shuffle(self.shuffle_bufsize).repeat()
     dataset = dataset.padded_batch(self.batch_size,
-                                   padded_shapes=([None, 257], [None], []))
+                                   padded_shapes=([None, 257], [None, 1], [None], []))
     dataset = dataset.map(
         self.process_data,
         num_parallel_calls=4)
@@ -505,7 +516,10 @@ class Pix2PixDataGenerator(DataGenerator):
 
     ### Image sequence length when training
     params.add_hparam('shuffle_bufsize', 100)
-    params.add_hparam('batch_size', 16)
+    params.add_hparam('batch_size', 4)
+    params.add_hparam('img_size', 512)
+    params.add_hparam('crop_ratio', 0.9)
+    params.add_hparam('seq_len', 20)
 
     return params
 
@@ -517,6 +531,9 @@ class Pix2PixDataGenerator(DataGenerator):
     self.data_list = open(params.dataset_path).readlines()
     self.shuffle_bufsize = params.shuffle_bufsize
     self.batch_size = params.batch_size
+    self.img_size = params.img_size
+    self.crop_ratio = params.crop_ratio
+    self.seq_len = params.seq_len
 
   def iterator(self):
     image_loader = ImageLoader()
@@ -526,31 +543,36 @@ class Pix2PixDataGenerator(DataGenerator):
     for line in self.data_list:
       folder, img_count = line.strip().split('|')
       img_count = int(img_count)
+      epoch = img_count // self.seq_len
+      index = 0
 
-      if (img_count > 0):
-        inputs = np.zeros([3, 256, 256, 3], dtype=np.float32)
-
-        for i in range(img_count):
-          img = image_loader.get_data(os.path.join(folder, '{}.jpg'.format(i)))
+      for i in range(epoch):
+        imgs = []
+        for _ in range(self.seq_len):
+          img = image_loader.get_data(os.path.join(folder, '{}.jpg'.format(index)))
           if (img is not None):
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            target = img[:, :256, :]
-            input = img[:, 256:512, :]
-            mask = img[:, 512:, :]
+            img = np.concatenate([img[:, :self.img_size, :], img[:, self.img_size:self.img_size*2, :], img[:, self.img_size*2:, :]], axis=-1)
+            rsize = random.randint(int(self.img_size*self.crop_ratio), self.img_size)
+            rx = random.randint(0, self.img_size - rsize)
+            ry = random.randint(0, self.img_size - rsize)
+            img = img[rx:rsize+rx, ry:rsize+ry, :]
+            img = cv2.resize(img, (self.img_size, self.img_size))
+            img = np.concatenate([img[:, :, :3], img[:, :, 3:6], img[:, :, 6:]], axis=1)
+            imgs.append(img)
+            index += 1
 
-            if(i==0):
-              inputs[2, ...] = input
-            elif(i==1):
-              inputs[1, ...] = inputs[2, ...]
-              inputs[2, ...] = input
-            else:
-              inputs[0, ...] = inputs[1, ...]
-              inputs[1, ...] = inputs[2, ...]
-              inputs[2, ...] = input
-
-            input = inputs.transpose((1, 2, 0, 3))
-            input = input.reshape([256, 256, 9])
-            yield input, target, mask
+        imgs = np.array(imgs)
+        targets = imgs[:, :, :self.img_size, :]
+        inputs = imgs[:, :, self.img_size:self.img_size*2, :]
+        masks = imgs[:, :, self.img_size*2:, :]
+        ## padding 2 empty frames before image sequence.
+        inputs = np.concatenate([np.zeros([2, inputs.shape[1], inputs.shape[2], inputs.shape[3]], dtype=inputs.dtype), inputs], axis=0)
+        for j in range(targets.shape[0]):
+          input_slice = inputs[j: j + 3, ...]
+          input_slice = input_slice.transpose((1, 2, 0, 3))
+          input_slice = input_slice.reshape([self.img_size, self.img_size, 9])
+          yield input_slice, targets[j, ...], masks[j, ...]
 
   def get_dataset(self):
     self.set_params(self.__params)
@@ -558,12 +580,12 @@ class Pix2PixDataGenerator(DataGenerator):
     dataset = tf.data.Dataset.from_generator(
         self.iterator,
         output_types=(tf.float32, tf.float32, tf.float32),
-        output_shapes=([256, 256, 3*3], [256, 256, 3], [256, 256, 3])
+        output_shapes=([self.img_size, self.img_size, 9], [self.img_size, self.img_size, 3], [self.img_size, self.img_size, 3])
     )
 
     dataset = dataset.shuffle(self.shuffle_bufsize).repeat()
     dataset = dataset.padded_batch(self.batch_size,
-                                   padded_shapes=([256, 256, 3*3], [256, 256, 3], [256, 256, 3]))
+                                   padded_shapes=([self.img_size, self.img_size, 9], [self.img_size, self.img_size, 3], [self.img_size, self.img_size, 3]))
 
     return dataset
 
@@ -772,5 +794,243 @@ class Audio2ExpNetDataGenerator(DataGenerator):
       # dataset = dataset.map(
       #     self.process_data,
       #     num_parallel_calls=4)
+
+    return dataset
+
+
+class PixFlowDataGenerator(DataGenerator):
+  def __init__(self, config_path):
+
+    if (not os.path.exists(config_path)):
+      logger.error('config_path not exists.')
+      exit(0)
+
+    self.__params = PixFlowDataGenerator.default_hparams(config_path)
+
+  @staticmethod
+  def default_hparams(config_path, name='default'):
+    params = YParams(config_path, name)
+    params.add_hparam('dataset_path', params.train_dataset_path)
+    params.add_hparam('shuffle_bufsize', 100)
+    params.add_hparam('batch_size', 3)
+    params.add_hparam('img_size', 512)
+    params.add_hparam('crop_ratio', 0.9)
+    params.add_hparam('seq_len', 20)
+    return params
+
+  @property
+  def params(self):
+    return self.__params
+
+  def set_params(self, params):
+    self.data_list = open(params.dataset_path).readlines()
+    self.shuffle_bufsize = params.shuffle_bufsize
+    self.batch_size = params.batch_size
+    self.img_size = params.img_size
+    self.crop_ratio = params.crop_ratio
+    self.seq_len = params.seq_len
+
+  def iterator(self):
+    image_loader = ImageLoader()
+
+    # example_img = image_loader.get_data('/media/dong/DiskData/gridcorpus/todir_vid2vid/vid1/05/1.jpg')
+    # example_img = cv2.cvtColor(example_img, cv2.COLOR_BGR2RGB)
+    # example_img = np.concatenate([example_img[:, :self.img_size, :], 
+    #                               example_img[:, self.img_size:self.img_size*2, :], 
+    #                               example_img[:, self.img_size*2:, :]], 
+    #                               axis=-1)
+    # example_img = np.concatenate([example_img[:, :, :3], 
+    #                               example_img[:, :, 3:6], 
+    #                               example_img[:, :, 6:]], 
+    #                               axis=1)
+
+    random.shuffle(self.data_list)
+
+    for line in self.data_list:
+      folder, img_count = line.strip().split('|')
+      img_count = int(img_count)
+
+      for i in range(img_count):
+        rnd_idx = random.randint(0, img_count-1)
+        rsize = random.randint(int(self.img_size*self.crop_ratio), self.img_size)
+        rx = random.randint(0, self.img_size - rsize)
+        ry = random.randint(0, self.img_size - rsize)
+
+        example_img = image_loader.get_data(os.path.join(folder, '{}.jpg'.format(rnd_idx)))
+        example_img = cv2.cvtColor(example_img, cv2.COLOR_BGR2RGB)
+        example_img = np.concatenate([example_img[:, :self.img_size, :], 
+                                      example_img[:, self.img_size:self.img_size*2, :], 
+                                      example_img[:, self.img_size*2:, :]], 
+                                      axis=-1)
+        example_img = example_img[rx:rsize+rx, ry:rsize+ry, :]
+        example_img = cv2.resize(example_img, (self.img_size, self.img_size))
+        example_img = np.concatenate([example_img[:, :, :3], 
+                                      example_img[:, :, 3:6], 
+                                      example_img[:, :, 6:]], 
+                                      axis=1)
+
+        rsize = random.randint(int(self.img_size*self.crop_ratio), self.img_size)
+        rx = random.randint(0, self.img_size - rsize)
+        ry = random.randint(0, self.img_size - rsize)
+
+        img = image_loader.get_data(os.path.join(folder, '{}.jpg'.format(i)))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = np.concatenate([img[:, :self.img_size, :], img[:, self.img_size:self.img_size*2, :], img[:, self.img_size*2:, :]], axis=-1)
+        img = img[rx:rsize+rx, ry:rsize+ry, :]
+        img = cv2.resize(img, (self.img_size, self.img_size))
+        img = np.concatenate([img[:, :, :3], img[:, :, 3:6], img[:, :, 6:]], axis=1)
+
+        imgs = []
+        imgs.append(example_img)
+        imgs.append(img)
+        imgs = np.array(imgs)
+
+        inputs = imgs[:, :, self.img_size:self.img_size*2, :]
+        inputs = inputs.transpose((1, 2, 0, 3))
+        inputs = inputs.reshape([self.img_size, self.img_size, 6])
+        targets = imgs[:, :, :self.img_size, :]
+        targets = targets.transpose((1, 2, 0, 3))
+        targets = targets.reshape([self.img_size, self.img_size, 6])
+        masks = imgs[:, :, self.img_size*2:, :]
+        masks = masks.transpose((1, 2, 0, 3))
+        masks = masks.reshape([self.img_size, self.img_size, 6])
+        fg_inputs = targets * masks
+        yield inputs, fg_inputs, masks[..., 3:]
+
+  def get_dataset(self):
+    self.set_params(self.__params)
+
+    dataset = tf.data.Dataset.from_generator(
+        self.iterator,
+        output_types=(tf.float32, tf.float32, tf.float32),
+        output_shapes=([self.img_size, self.img_size, 6], 
+                        [self.img_size, self.img_size, 6], 
+                        [self.img_size, self.img_size, 3])
+    )
+
+    dataset = dataset.shuffle(self.shuffle_bufsize).repeat()
+    dataset = dataset.padded_batch(self.batch_size,
+                                   padded_shapes=([self.img_size, self.img_size, 6], 
+                                                  [self.img_size, self.img_size, 6], 
+                                                  [self.img_size, self.img_size, 3]))
+
+    return dataset
+
+
+class PixReferDataGenerator(DataGenerator):
+  def __init__(self, config_path):
+
+    if (not os.path.exists(config_path)):
+      logger.error('config_path not exists.')
+      exit(0)
+
+    self.__params = PixReferDataGenerator.default_hparams(config_path)
+
+  @staticmethod
+  def default_hparams(config_path, name='default'):
+    params = YParams(config_path, name)
+    params.add_hparam('dataset_path', params.train_dataset_path)
+    params.add_hparam('shuffle_bufsize', 100)
+    params.add_hparam('batch_size', 2)
+    params.add_hparam('img_size', 512)
+    params.add_hparam('crop_ratio', 0.9)
+    params.add_hparam('seq_len', 8)
+    return params
+
+  @property
+  def params(self):
+    return self.__params
+
+  def set_params(self, params):
+    self.data_list = open(params.dataset_path).readlines()
+    self.shuffle_bufsize = params.shuffle_bufsize
+    self.batch_size = params.batch_size
+    self.img_size = params.img_size
+    self.crop_ratio = params.crop_ratio
+    self.seq_len = params.seq_len
+
+  def iterator(self):
+    image_loader = ImageLoader()
+
+    # example_img = image_loader.get_data('/media/dong/DiskData/gridcorpus/todir_vid2vid/vid1/05/1.jpg')
+    # example_img = cv2.cvtColor(example_img, cv2.COLOR_BGR2RGB)
+    # example_img = np.concatenate([example_img[:, :self.img_size, :], 
+    #                               example_img[:, self.img_size:self.img_size*2, :], 
+    #                               example_img[:, self.img_size*2:, :]], 
+    #                               axis=-1)
+    # example_img = np.concatenate([example_img[:, :, :3], 
+    #                               example_img[:, :, 3:6], 
+    #                               example_img[:, :, 6:]], 
+    #                               axis=1)
+
+    random.shuffle(self.data_list)
+
+    for line in self.data_list:
+      folder, img_count = line.strip().split('|')
+      img_count = int(img_count)
+
+      for i in range(img_count):
+        rnd_idx = random.randint(0, img_count-1)
+        rsize = random.randint(int(self.img_size*self.crop_ratio), self.img_size)
+        rx = random.randint(0, self.img_size - rsize)
+        ry = random.randint(0, self.img_size - rsize)
+
+        example_img = image_loader.get_data(os.path.join(folder, '{}.jpg'.format(rnd_idx)))
+        example_img = cv2.cvtColor(example_img, cv2.COLOR_BGR2RGB)
+        example_img = np.concatenate([example_img[:, :self.img_size, :], 
+                                      example_img[:, self.img_size:self.img_size*2, :], 
+                                      example_img[:, self.img_size*2:, :]], 
+                                      axis=-1)
+        example_img = example_img[rx:rsize+rx, ry:rsize+ry, :]
+        example_img = cv2.resize(example_img, (self.img_size, self.img_size))
+        example_img = np.concatenate([example_img[:, :, :3], 
+                                      example_img[:, :, 3:6], 
+                                      example_img[:, :, 6:]], 
+                                      axis=1)
+
+        rsize = random.randint(int(self.img_size*self.crop_ratio), self.img_size)
+        rx = random.randint(0, self.img_size - rsize)
+        ry = random.randint(0, self.img_size - rsize)
+
+        img = image_loader.get_data(os.path.join(folder, '{}.jpg'.format(i)))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = np.concatenate([img[:, :self.img_size, :], img[:, self.img_size:self.img_size*2, :], img[:, self.img_size*2:, :]], axis=-1)
+        img = img[rx:rsize+rx, ry:rsize+ry, :]
+        img = cv2.resize(img, (self.img_size, self.img_size))
+        img = np.concatenate([img[:, :, :3], img[:, :, 3:6], img[:, :, 6:]], axis=1)
+
+        imgs = []
+        imgs.append(example_img)
+        imgs.append(img)
+        imgs = np.array(imgs)
+
+        inputs = imgs[:, :, self.img_size:self.img_size*2, :]
+        inputs = inputs.transpose((1, 2, 0, 3))
+        inputs = inputs.reshape([self.img_size, self.img_size, 6])
+        targets = imgs[:, :, :self.img_size, :]
+        masks = imgs[:, :, self.img_size*2:, :]
+        fg_inputs = targets * masks
+        fg_inputs = fg_inputs.transpose([1, 2, 0, 3]).reshape([self.img_size, self.img_size, 6])
+        # fg_inputs = targets[0, ...] * masks[0, ...]
+        yield inputs, fg_inputs, targets[1, ...], masks[1, ...]
+
+  def get_dataset(self):
+    self.set_params(self.__params)
+
+    dataset = tf.data.Dataset.from_generator(
+        self.iterator,
+        output_types=(tf.float32, tf.float32, tf.float32, tf.float32),
+        output_shapes=([self.img_size, self.img_size, 6], 
+                        [self.img_size, self.img_size, 6], 
+                        [self.img_size, self.img_size, 3], 
+                        [self.img_size, self.img_size, 3])
+    )
+
+    dataset = dataset.shuffle(self.shuffle_bufsize).repeat()
+    dataset = dataset.padded_batch(self.batch_size,
+                                   padded_shapes=([self.img_size, self.img_size, 6], 
+                                                  [self.img_size, self.img_size, 6], 
+                                                  [self.img_size, self.img_size, 3], 
+                                                  [self.img_size, self.img_size, 3]))
 
     return dataset

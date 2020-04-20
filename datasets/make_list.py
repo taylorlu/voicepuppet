@@ -83,6 +83,6 @@ if (__name__ == '__main__'):
       exit(0)
 
     params = YParams(config_path, 'default')
-    write_dataset2(params)
+    write_dataset(params)
   else:
     print('Please check your parameters.')

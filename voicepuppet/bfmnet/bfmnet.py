@@ -76,14 +76,44 @@ class BFMCoeffDecoder(ModelBuilder):
     if (not trainable):
       self.drop_rate = 0
 
-  def build_network(self, inputs):
-    dense = tf.layers.dense(inputs, self.bfm_coeff_size, activation=tf.nn.leaky_relu)
-    dense = tf.layers.dropout(dense, rate=self.drop_rate, training=self.trainable)
-    output_bfm_coeff = tf.layers.dense(dense, self.bfm_coeff_size, activation=None)
+  # def build_network(self, inputs, ears):
+  #   output_bfm_coeff_noeye = tf.layers.dense(inputs, self.bfm_coeff_size)
+  #   ear_coeff_weight = tf.get_variable('ear_coeff_weight', [1, self.bfm_coeff_size], initializer=tf.random_uniform_initializer(minval=-1.0, maxval=1.0))
+  #   ear_coeff_weight = ear_coeff_weight * ears
+  #   output_bfm_coeff = output_bfm_coeff_noeye + ear_coeff_weight
+  #   return output_bfm_coeff, output_bfm_coeff_noeye, ear_coeff_weight
+
+  # def build_network(self, inputs, ears):
+  #   dense = tf.layers.dense(inputs, 4, activation=tf.nn.leaky_relu)
+  #   dense = tf.concat([dense, ears], -1)
+  #   dense = tf.layers.dense(dense, self.bfm_coeff_size)
+  #   output_bfm_coeff = tf.layers.dense(inputs, self.bfm_coeff_size)
+  #   output_bfm_coeff += dense
+  #   return output_bfm_coeff
+
+  # def build_network(self, inputs, ears):
+  #   dense = tf.layers.dense(inputs, 4, activation=tf.nn.leaky_relu)
+  #   dense_ear = tf.concat([dense, ears], -1)
+  #   dense_ear = tf.layers.dense(dense_ear, 4)
+  #   output_bfm_coeff = tf.layers.dense(inputs, self.bfm_coeff_size) + tf.pad(dense_ear, [[0, 0], [0, 0], [16, 44]])
+  #   return output_bfm_coeff
+
+    # dense = tf.layers.dense(inputs, 64)
+    # dense = tf.contrib.layers.batch_norm(dense, updates_collections=None, is_training=self.trainable)
+    # dense = tf.layers.dense(dense, 8, activation=tf.nn.leaky_relu)
+    # output_bfm_coeff = tf.layers.dense(dense, self.bfm_coeff_size)
+    # return output_bfm_coeff
+
+  def build_network(self, inputs, ears):
+    dense = tf.layers.dense(inputs, 128, activation=tf.nn.leaky_relu)
+    dense = tf.nn.dropout(dense, keep_prob=1-self.drop_rate)
+    dense = tf.layers.dense(dense, 64, activation=tf.nn.leaky_relu)
+    dense = tf.nn.dropout(dense, keep_prob=1-self.drop_rate)
+    output_bfm_coeff = tf.layers.dense(dense, self.bfm_coeff_size) + tf.pad(ears, [[0, 0], [0, 0], [16, 44]])
     return output_bfm_coeff
 
-  def __call__(self, inputs):
-    output_bfm_coeff = self.build_network(inputs)
+  def __call__(self, inputs, ears):
+    output_bfm_coeff = self.build_network(inputs, ears)
     return {'BFMCoeffDecoder': output_bfm_coeff}
 
 
@@ -100,6 +130,10 @@ class BFMNet(ModelBuilder):
     self.mouth_mask = np.ones([35709, 3], dtype=np.float32)
     for k in range(mouth_mat.shape[0]):
       self.mouth_mask[mouth_mat[k], ...] = [10, 10, 10]
+    eyes_mat = np.load(os.path.join(self.__params.pretrain_dir, 'eyes_index.npy'))
+    self.noeyes_mask = np.ones([35709, 3], dtype=np.float32)
+    for k in range(eyes_mat.shape[0]):
+      self.noeyes_mask[eyes_mat[k], ...] = [0, 0, 0]
 
   @staticmethod
   def default_hparams(config_path, name='default'):
@@ -111,9 +145,9 @@ class BFMNet(ModelBuilder):
     params.add_hparam('rnn_layers', 1)
     params.add_hparam('bfm_coeff_size', 64)
 
-    params.training['learning_rate'] = 0.001
-    params.training['decay_steps'] = 1000
-    params.training['decay_rate'] = 0.95
+    params.training['learning_rate'] = 0.0001
+    params.training['decay_steps'] = 10000
+    params.training['decay_rate'] = 1
 
     return params
 
@@ -147,7 +181,7 @@ class BFMNet(ModelBuilder):
     self.thinresnet_pooling_size = [int(math.ceil(float(self.frame_mfcc_scale) / self.thinresnet_scale[0])),
                                     int(math.ceil(float(self.num_mel_bins) / self.thinresnet_scale[1]))]
 
-  def build_network(self, mfccs, seq_len, trainable=True):
+  def build_network(self, ears, mfccs, seq_len, trainable=True):
     nodes = {}
     if (not trainable):
       self.drop_rate = 0
@@ -168,7 +202,8 @@ class BFMNet(ModelBuilder):
 
     with tf.variable_scope('bfm_coeff_decoder', reuse=tf.AUTO_REUSE):
       bfmCoeffDecoder = BFMCoeffDecoder(self.bfm_coeff_size, trainable=trainable)
-      nodes.update(bfmCoeffDecoder(nodes['RNNModule']))
+      ears = ears*tf.tile(tf.constant([[[-2, -2, -2, -4]]], dtype=tf.float32), (self.batch_size, tf.keras.backend.max(seq_len), 1))
+      nodes.update(bfmCoeffDecoder(nodes['RNNModule'], ears))
 
     return nodes
 
@@ -200,44 +235,47 @@ class BFMNet(ModelBuilder):
 
     output_bfm_coeffs = tf.concat([bfm_coeffs[:, :, :80], output_bfm_coeffs], -1)
     output_bfm_coeffs = tf.reshape(output_bfm_coeffs, [-1, output_bfm_coeffs.shape[-1]])
+    output_face_shape = self.Shape_formation(output_bfm_coeffs)
+    output_face_shape = tf.reshape(output_face_shape, [self.batch_size, -1, 35709*3])
 
     bfm_coeffs = tf.reshape(bfm_coeffs, [-1, bfm_coeffs.shape[-1]])
     face_shape = self.Shape_formation(bfm_coeffs)
     face_shape = tf.reshape(face_shape, [self.batch_size, -1, 35709*3])
 
-    output_bfm_coeffs = tf.reshape(output_bfm_coeffs, [-1, output_bfm_coeffs.shape[-1]])
-    output_face_shape = self.Shape_formation(output_bfm_coeffs)
-    output_face_shape = tf.reshape(output_face_shape, [self.batch_size, -1, 35709*3])
-
     vertice_mask = tf.tile(tf.expand_dims(self.mouth_mask, 0), (tf.keras.backend.max(seq_len), 1, 1))
     vertice_mask = tf.tile(tf.expand_dims(vertice_mask, 0), (self.batch_size, 1, 1, 1))
     vertice_mask = tf.reshape(vertice_mask, [self.batch_size, -1, 35709*3])
 
+    # vertice_mask2 = tf.tile(tf.expand_dims(self.noeyes_mask, 0), (tf.keras.backend.max(seq_len), 1, 1))
+    # vertice_mask2 = tf.tile(tf.expand_dims(vertice_mask2, 0), (self.batch_size, 1, 1, 1))
+    # vertice_mask2 = tf.reshape(vertice_mask2, [self.batch_size, -1, 35709*3])
+
     bfm_coeff_mask = tf.sequence_mask(seq_len, tf.keras.backend.max(seq_len), dtype=tf.float32)
-    bfm_coeff_diff = tf.math.reduce_sum(tf.math.square(face_shape - output_face_shape)*vertice_mask, axis=-1)
+    bfm_coeff_diff = tf.math.reduce_sum(tf.abs(face_shape - output_face_shape)*vertice_mask, axis=-1)
     loss = tf.math.reduce_mean(tf.math.reduce_sum(bfm_coeff_diff * bfm_coeff_mask, axis=-1))  # frame diff
 
     video_mask = tf.sequence_mask(seq_len - 1, tf.keras.backend.max(seq_len) - 1,
                                   dtype=tf.float32)  # shorter of 1 to landmark_mask
     video_diff = (output_face_shape[:, 1:, :] - output_face_shape[:, :-1, :]) - (
         face_shape[:, 1:, :] - face_shape[:, :-1, :])
-    video_diff = tf.math.reduce_sum(tf.math.square(video_diff)*vertice_mask[:,:-1,:], axis=-1)
+    video_diff = tf.math.reduce_sum(tf.abs(video_diff)*vertice_mask[:,:-1,:], axis=-1)
     video_loss = tf.math.reduce_mean(tf.math.reduce_sum(video_diff * video_mask, axis=-1))  # video diff
 
     loss += video_loss
     loss += tf.losses.get_regularization_loss()
     return loss
 
-  def build_eval_op(self, bfm_coeff_seq, mfccs, seq_len):
+  def build_eval_op(self, bfm_coeff_seq, ears, mfccs, seq_len):
     nodes = {}
     nodes.update({'BFM_coeff_seq': bfm_coeff_seq})
+    nodes.update({'Ears': ears})
     nodes.update({'Mfccs': mfccs})
     nodes.update({'Seq_len': seq_len})
 
     ## Only preserve the identity[80] and expression[64] coefficients
     # bfm_coeff_seq = bfm_coeff_seq[:, :, 80:144]
 
-    network_dict = self.build_network(mfccs, seq_len, trainable=False)
+    network_dict = self.build_network(ears, mfccs, seq_len, trainable=False)
     nodes.update(network_dict)
 
     loss = self.add_cost_function(nodes['BFMCoeffDecoder'], bfm_coeff_seq, seq_len)
@@ -245,16 +283,17 @@ class BFMNet(ModelBuilder):
 
     return nodes
 
-  def build_train_op(self, bfm_coeff_seq, mfccs, seq_len):
+  def build_train_op(self, bfm_coeff_seq, ears, mfccs, seq_len):
     nodes = {}
     nodes.update({'BFM_coeff_seq': bfm_coeff_seq})
+    nodes.update({'Ears': ears})
     nodes.update({'Mfccs': mfccs})
     nodes.update({'Seq_len': seq_len})
 
     ## Only preserve the identity[80] and expression[64] coefficients
     # bfm_coeff_seq = bfm_coeff_seq[:, :, 80:144]
 
-    network_dict = self.build_network(mfccs, seq_len, trainable=True)
+    network_dict = self.build_network(ears, mfccs, seq_len, trainable=True)
     nodes.update(network_dict)
 
     loss = self.add_cost_function(nodes['BFMCoeffDecoder'], bfm_coeff_seq, seq_len)
@@ -278,11 +317,12 @@ class BFMNet(ModelBuilder):
 
     return nodes
 
-  def build_inference_op(self, mfccs, seq_len):
+  def build_inference_op(self, ears, mfccs, seq_len):
     nodes = {}
+    nodes.update({'Ears': ears})
     nodes.update({'Mfccs': mfccs})
 
-    network_dict = self.build_network(mfccs, seq_len, trainable=False)
+    network_dict = self.build_network(ears, mfccs, seq_len, trainable=False)
     nodes.update(network_dict)
 
     return nodes

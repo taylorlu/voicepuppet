@@ -5,8 +5,8 @@ import numpy as np
 import os
 from optparse import OptionParser
 import logging
-from pix2pix import Pix2PixNet
-from generator.generator import Pix2PixDataGenerator
+from pixflow import PixFlowNet
+from generator.generator import PixFlowDataGenerator
 from utils.utils import *
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -33,9 +33,9 @@ if (__name__ == '__main__'):
 
   os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
-  batch_size = 16
+  batch_size = 3
   ### Generator for training setting
-  train_generator = Pix2PixDataGenerator(config_path)
+  train_generator = PixFlowDataGenerator(config_path)
   params = train_generator.params
   params.dataset_path = params.train_dataset_path
   params.batch_size = batch_size
@@ -49,25 +49,44 @@ if (__name__ == '__main__'):
 
   train_iter = train_dataset.make_one_shot_iterator()
 
-  ### Pix2PixNet setting
-  pix2pixnet = Pix2PixNet(config_path)
-  params = pix2pixnet.params
+  # inputs, fg_inputs, targets, masks = sess.run(train_iter.get_next())
+  # inp1 = cv2.cvtColor((inputs[0,...,0:3]*255).astype(np.uint8), cv2.COLOR_BGR2RGB)
+  # inp2 = cv2.cvtColor((inputs[0,...,3:6]*255).astype(np.uint8), cv2.COLOR_BGR2RGB)
+  # fg_inputs1 = cv2.cvtColor((fg_inputs[0,...,0:3]*255).astype(np.uint8), cv2.COLOR_BGR2RGB)
+  # fg_inputs2 = cv2.cvtColor((fg_inputs[0,...,3:6]*255).astype(np.uint8), cv2.COLOR_BGR2RGB)
+  # targets1 = cv2.cvtColor((targets[0,...,0:3]*255).astype(np.uint8), cv2.COLOR_BGR2RGB)
+  # targets2 = cv2.cvtColor((targets[0,...,3:6]*255).astype(np.uint8), cv2.COLOR_BGR2RGB)
+  # masks1 = cv2.cvtColor((masks[0,...,0:3]*255).astype(np.uint8), cv2.COLOR_BGR2RGB)
+  # masks2 = cv2.cvtColor((masks[0,...,3:6]*255).astype(np.uint8), cv2.COLOR_BGR2RGB)
+
+  # cv2.imwrite('to/inp1.jpg', inp1)
+  # cv2.imwrite('to/inp2.jpg', inp2)
+  # cv2.imwrite('to/fg_inputs1.jpg', fg_inputs1)
+  # cv2.imwrite('to/fg_inputs2.jpg', fg_inputs2)
+  # cv2.imwrite('to/targets1.jpg', targets1)
+  # cv2.imwrite('to/targets2.jpg', targets2)
+  # cv2.imwrite('to/masks1.jpg', masks1)
+  # cv2.imwrite('to/masks2.jpg', masks2)
+  # sys.exit(0)
+
+
+  ### Vid2VidNet setting
+  vid2vidnet = PixFlowNet(config_path)
+  params = vid2vidnet.params
   epochs = params.training['epochs']
   params.add_hparam('max_to_keep', 2)
-  params.add_hparam('save_dir', 'ckpt_pix2pixnet')
-  params.add_hparam('save_name', 'pix2pixnet')
+  params.add_hparam('save_dir', 'ckpt_pixflow')
+  params.add_hparam('save_name', 'pixflownet')
   params.add_hparam('save_step', 5000)
   params.add_hparam('summary_step', 100)
-  params.add_hparam('eval_visual_dir', 'log/eval_pix2pixnet')
-  params.add_hparam('summary_dir', 'log/summary_pix2pixnet')
+  params.add_hparam('summary_dir', 'log/summary_pixflow')
   params.batch_size = batch_size
-  pix2pixnet.set_params(params)
+  vid2vidnet.set_params(params)
 
   mkdir(params.save_dir)
-  mkdir(params.eval_visual_dir)
   mkdir(params.summary_dir)
 
-  train_nodes = pix2pixnet.build_train_op(*train_iter.get_next())
+  train_nodes = vid2vidnet.build_train_op(*train_iter.get_next())
   sess.run(tf.global_variables_initializer())
 
   # Restore from save_dir
@@ -79,17 +98,21 @@ if (__name__ == '__main__'):
   tf.summary.scalar("generator_loss_L1", train_nodes['Gen_loss_L1'])
 
   with tf.name_scope("inputs_summary"):
-    tf.summary.image("inputs", tf.image.convert_image_dtype(train_nodes['Inputs'][:,:,:,6:], dtype=tf.uint8))
+    tf.summary.image("inputs", tf.image.convert_image_dtype(train_nodes['Inputs'][... ,3:6], dtype=tf.uint8))
 
   with tf.name_scope("targets_summary"):
-    tf.summary.image("targets", tf.image.convert_image_dtype(train_nodes['Targets'][:,:,:,:], dtype=tf.uint8))
+    tf.summary.image("targets", tf.image.convert_image_dtype(train_nodes['FG_Inputs'][... ,3:6], dtype=tf.uint8))
 
   with tf.name_scope("outputs_summary"):
-    tf.summary.image("outputs", tf.image.convert_image_dtype(train_nodes['Outputs'][:,:,:,:], dtype=tf.uint8))
+    tf.summary.image("outputs", tf.image.convert_image_dtype(train_nodes['Outputs'], dtype=tf.uint8))
+
+  with tf.name_scope("alpha_summary"):
+    tf.summary.image("alphas", tf.image.convert_image_dtype(train_nodes['Alphas'], dtype=tf.uint8))
 
   # Add histograms for gradients.
   for grad, var in train_nodes['Discrim_grads_and_vars'] + train_nodes['Gen_grads_and_vars']:
-    tf.summary.histogram(var.op.name + "/gradients", grad)
+    if(grad is not None):
+      tf.summary.histogram(var.op.name, grad)
 
   merge_summary_op = tf.summary.merge_all()
   summary_writer = tf.summary.FileWriter(params.summary_dir, graph=sess.graph)

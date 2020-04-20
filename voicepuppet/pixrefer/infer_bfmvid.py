@@ -6,7 +6,7 @@ import os
 from optparse import OptionParser
 import logging
 import subprocess
-from pix2pix import Pix2PixNet
+from pixrefer import PixReferNet
 from voicepuppet.bfmnet.bfmnet import BFMNet
 from generator.loader import *
 from generator.generator import DataGenerator
@@ -14,10 +14,12 @@ from utils.bfm_load_data import *
 from utils.bfm_visual import *
 from utils.utils import *
 import scipy
+import random
+bfmcoeff_loader = BFMCoeffLoader()
+vid_bfmcoeff = bfmcoeff_loader.get_data('/media/dong/DiskData/gridcorpus/todir/bilibili/4_16/bfmcoeff.txt')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
 
 def alignto_bfm_coeff(model_dir, img, xys):
   from PIL import Image
@@ -67,7 +69,7 @@ def alignto_bfm_coeff(model_dir, img, xys):
       return bfmcoeff, input_img, transform_params
 
 angles = np.array([[0, 0, 0]], dtype=np.float32)
-shift = 0.001
+shift = 0.005
 
 def render_face(center_x, center_y, ratio, bfmcoeff, img, transform_params, facemodel):
   ratio *= transform_params[2]
@@ -75,9 +77,11 @@ def render_face(center_x, center_y, ratio, bfmcoeff, img, transform_params, face
   ty = -int((transform_params[4] / ratio))
   global angles, shift
 
-  # angles[0][1] += shift
-  # if (angles[0][1] > 0.01 or angles[0][1] < -0.01):
-  #   shift = -shift
+  angles[0][0] += shift
+  angles[0][1] += shift
+  angles[0][2] += shift
+  if (angles[0][1] > 0.03 or angles[0][1] < -0.03):
+    shift = -shift
 
   face_shape, face_texture, face_color, face_projection, z_buffer, landmarks_2d = Reconstruction_rotation(
     bfmcoeff, facemodel, angles)
@@ -131,9 +135,11 @@ if (__name__ == '__main__'):
     logger.error('config_path not exists')
     exit(0)
 
+  os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+  os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+
   image_file, audio_file = argv
 
-  os.environ["CUDA_VISIBLE_DEVICES"] = '-1'
   mkdir('output')
   for file in os.listdir('output'):
     os.system('rm -rf output/{}'.format(file))
@@ -156,80 +162,91 @@ if (__name__ == '__main__'):
   pcm_slice = pcm[:pcm_length][np.newaxis, :]
 
   mfcc = infer_generator.extract_mfcc(pcm_slice)
-  img = cv2.imread(image_file)
-  img = cv2.resize(img[:, 72:72 + 576, :], (256, 256))
-
+  img_size = 512
+  img = cv2.imread(image_file)[:, :512, :]
   img, img_landmarks, img_cropped, lmk_cropped, center_x, center_y, ratio = get_mxnet_sat_alignment(params.pretrain_dir, img)
   bfmcoeff, input_img, transform_params = alignto_bfm_coeff(params.pretrain_dir, img_cropped, lmk_cropped)
 
-  seq_len = tf.convert_to_tensor([pad_len], dtype=tf.int32)
+  img = cv2.cvtColor(cv2.imread(image_file), cv2.COLOR_BGR2RGB).astype(np.float32)/255.0
+  face3d_refer = img[:, 512:512*2, :]
+  fg_refer = img[:, :512, :] * img[:, 512*2:, :]
+  img = img[:, :512, :]
 
   with tf.Session(config=tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True))) as sess:
+    seq_len = tf.convert_to_tensor([pad_len], dtype=tf.int32)
+    ear = np.random.rand(1, pad_len, 1).astype(np.float32)/100
+    ear = tf.convert_to_tensor(ear, dtype=tf.float32)
 
-    ### BFMNet setting
-    bfmnet = BFMNet(config_path)
-    params = bfmnet.params
-    params.batch_size = batch_size
-    bfmnet.set_params(params)
+    with tf.variable_scope('localization'):
+      ### BFMNet setting
+      bfmnet = BFMNet(config_path)
+      params = bfmnet.params
+      params.batch_size = 1
+      bfmnet.set_params(params)
 
-    infer_nodes = bfmnet.build_inference_op(mfcc, seq_len)
+      bfmnet_nodes = bfmnet.build_inference_op(ear, mfcc, seq_len)
+
+    with tf.variable_scope('recognition'):
+      ### Vid2VidNet setting
+      vid2vidnet = PixReferNet(config_path)
+      params = vid2vidnet.params
+      params.batch_size = 1
+      params.add_hparam('is_training', False)
+      vid2vidnet.set_params(params)
+
+      inputs_holder = tf.placeholder(tf.float32, shape=[None, img_size, img_size, 6])
+      fg_inputs_holder = tf.placeholder(tf.float32, shape=[None, img_size, img_size, 3])
+      targets_holder = tf.placeholder(tf.float32, shape=[None, img_size, img_size, 3])
+      vid2vid_nodes = vid2vidnet.build_inference_op(inputs_holder, fg_inputs_holder, targets_holder)
+
+    variables_to_restore = tf.global_variables()
+    loc_varlist = {v.name[13:][:-2]: v 
+                            for v in variables_to_restore if v.name[:12]=='localization'}
+    rec_varlist = {v.name[12:][:-2]: v 
+                            for v in variables_to_restore if v.name[:11]=='recognition'}
+
+    loc_saver = tf.train.Saver(var_list=loc_varlist)
+    rec_saver = tf.train.Saver(var_list=rec_varlist)
+
     sess.run(tf.global_variables_initializer())
+    loc_saver.restore(sess, 'ckpt_bfmnet/bfmnet-65000')
+    rec_saver.restore(sess, 'ckpt_pixrefer/pixrefernet-20000')
 
-    # Restore from save_dir
-    tf.train.Saver().restore(sess, 'ckpt_bfmnet/bfmnet-31000')
-
-    ### Run inference
-    bfm_coeff_seq = sess.run(infer_nodes['BFMCoeffDecoder'])
+    # ### Run inference
+    bfm_coeff_seq = sess.run(bfmnet_nodes['BFMCoeffDecoder'])
+    # bfm_coeff_seq = vid_bfmcoeff[np.newaxis, :, 80:144]
     bfmcoeff = np.tile(bfmcoeff[:, np.newaxis, :], [1, bfm_coeff_seq.shape[1], 1])
-
-    bfm_coeff_seq = np.concatenate([bfmcoeff[:, :, :80], bfm_coeff_seq[:, :, :], bfmcoeff[:, :, 144:]], axis=2)
-    merge_images = []
+    bfm_coeff_seq = np.concatenate([bfmcoeff[:, :, :80], bfm_coeff_seq, bfmcoeff[:, :, 144:]], axis=2)
+    
+    inputs = np.zeros([1, img_size, img_size, 6], dtype=np.float32)
+    fg_inputs = np.zeros([1, img_size, img_size, 3], dtype=np.float32)
+    inputs[0, ..., 0:3] = face3d_refer
+    fg_inputs[0, ..., 0:3] = fg_refer
 
     for i in range(bfm_coeff_seq.shape[1]):
-      face3d = render_face(center_x, center_y, ratio, bfm_coeff_seq[0, i:i + 1, ...], img, transform_params, facemodel)
+      face3d = render_face(center_x+random.randint(-0, 0), center_y+random.randint(-0, 0), ratio, bfm_coeff_seq[0, i:i + 1, ...], img, transform_params, facemodel)
+      # cv2.imwrite('output/{}.jpg'.format(i), face3d)
+      face3d = cv2.cvtColor(face3d, cv2.COLOR_BGR2RGB).astype(np.float32)/255.0
 
-      merge_image = np.zeros((256, 512, 3), dtype=np.uint8)
-      merge_image[:, 0:256, :] = cv2.resize(cv2.imread('/home/dong/Downloads/bg.jpg'), (256,256))
-      merge_image[:, 256:512, :] = face3d
+      inputs[0, ..., 3:6] = face3d
 
-      cv2.imwrite('output/{}.jpg'.format(i), merge_image)
-      merge_image = cv2.cvtColor(merge_image, cv2.COLOR_BGR2RGB)
-      merge_images.append(merge_image)
+      bg_img = cv2.resize(cv2.imread('background/{}.jpg'.format(i%200+1)), (img_size, img_size)).astype(np.float32)/255.0
+      bg_img = cv2.cvtColor(bg_img, cv2.COLOR_BGR2RGB)
+      frames, last = sess.run([vid2vid_nodes['Outputs'], vid2vid_nodes['Outputs_FG']], 
+        feed_dict={inputs_holder: inputs, fg_inputs_holder: fg_inputs, targets_holder: bg_img[np.newaxis, ...]})
 
-  tf.reset_default_graph()
-  with tf.Session(config=tf.ConfigProto(gpu_options=tf.GPUOptions(allow_growth=True))) as sess2:
-    ### Pix2PixNet setting
-    pix2pixnet = Pix2PixNet(config_path)
-    params = pix2pixnet.params
-    params.batch_size = 1
-    pix2pixnet.set_params(params)
+      cv2.imwrite('output/{}.jpg'.format(i), cv2.cvtColor((frames[0,...]*255).astype(np.uint8), cv2.COLOR_BGR2RGB))
 
-    inputs_holder = tf.placeholder(tf.float32, shape=[None, 256, 256, 3*3])
-    targets_holder = tf.placeholder(tf.float32, shape=[None, 256, 256, 3])
-    infer_nodes = pix2pixnet.build_inference_op(inputs_holder, targets_holder)
+    # image_loader = ImageLoader()
+    # for index in range(4, 195):
+    #   img = image_loader.get_data(os.path.join('/media/dong/DiskData/gridcorpus/todir_vid2vid/vid1/05', '{}.jpg'.format(index)))
+    #   face3d = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)[:, img_size:img_size*2, :]
 
-    sess2.run(tf.global_variables_initializer())
-    # Restore from save_dir
-    tf.train.Saver().restore(sess2, 'ckpt_pix2pixnet/pix2pixnet-35000')
+    #   inputs[0, ..., 3:6] = inputs[0, ..., 6:9]
+    #   inputs[0, ..., 6:9] = face3d
 
-    merge_images = np.array(merge_images)/255.0
-    targets = merge_images[:, :, :256, :]
-    inputs = merge_images[:, :, 256:512, :]
+    #   frames, last = sess.run([vid2vid_nodes['Outputs'], vid2vid_nodes['Outputs_FG']], 
+    #     feed_dict={inputs_holder: inputs, fg_inputs_holder: fg_inputs, targets_holder: np.tile(bg_img, (1, 1, 3))[np.newaxis, ...]})
+    #   fg_inputs[0, ..., 3:6] = last
 
-    ## padding 2 empty frames before image sequence.
-    inputs = np.concatenate([np.zeros([2, inputs.shape[1], inputs.shape[2], inputs.shape[3]], dtype=inputs.dtype), inputs], axis=0)
-    for i in range(merge_images.shape[0]):
-      input_slice = inputs[i: i + 3, ...]
-      input_slice = input_slice.transpose((1, 2, 0, 3))
-      input_slice = input_slice.reshape([256, 256, 9])
-
-      frames = sess2.run(infer_nodes['Outputs'], 
-        feed_dict={inputs_holder: input_slice[np.newaxis, ...], targets_holder: targets[i:i+1, ...]})
-
-      cv2.imwrite('output/_{}.jpg'.format(i), cv2.cvtColor((frames[0,...]*255).astype(np.uint8), cv2.COLOR_BGR2RGB))
-
-  cmd = 'ffmpeg -i output/_%d.jpg -i ' + audio_file + ' -c:v libx264 -c:a aac -strict experimental -y temp2.mp4'
-  subprocess.call(cmd, shell=True)
-
-  cmd = 'ffmpeg -i output/%d.jpg -i ' + audio_file + ' -c:v libx264 -c:a aac -strict experimental -y temp.mp4'
-  subprocess.call(cmd, shell=True)
+    #   cv2.imwrite('output/{}.jpg'.format(index), cv2.cvtColor((last[0,...]*255).astype(np.uint8), cv2.COLOR_BGR2RGB))

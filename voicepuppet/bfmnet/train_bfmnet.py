@@ -35,7 +35,7 @@ if (__name__ == '__main__'):
 
   os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
-  batch_size = 16
+  batch_size = 8
   ### Generator for training setting
   train_generator = BFMNetDataGenerator(config_path)
   params = train_generator.params
@@ -66,13 +66,13 @@ if (__name__ == '__main__'):
   params = bfmnet.params
   epochs = params.training['epochs']
   params.add_hparam('max_to_keep', 10)
-  params.add_hparam('save_dir', 'ckpt_bfmnet')
+  params.add_hparam('save_dir', 'ckpt_bfmnet2')
   params.add_hparam('save_name', 'bfmnet')
-  params.add_hparam('save_step', 1000)
-  params.add_hparam('eval_step', 100)
-  params.add_hparam('summary_step', 100)
-  params.add_hparam('eval_visual_dir', 'log/eval_bfmnet')
-  params.add_hparam('summary_dir', 'log/summary_bfmnet')
+  params.add_hparam('save_step', 5000)
+  params.add_hparam('eval_step', 1000)
+  params.add_hparam('summary_step', 1000)
+  params.add_hparam('eval_visual_dir', 'log/eval_bfmnet2')
+  params.add_hparam('summary_dir', 'log/summary_bfmnet2')
   params.batch_size = batch_size
   bfmnet.set_params(params)
   facemodel = BFM(params.pretrain_dir)
@@ -87,6 +87,7 @@ if (__name__ == '__main__'):
 
   # Restore from save_dir
   if ('checkpoint' in os.listdir(params.save_dir)):
+    print('Restore from {}\n'.format(params.save_dir))
     tf.train.Saver().restore(sess, tf.train.latest_checkpoint(params.save_dir))
 
   tf.summary.scalar("loss", train_nodes['Loss'])
@@ -112,8 +113,9 @@ if (__name__ == '__main__'):
                        train_nodes['Global_step'],
                        train_nodes['Mfccs'],
                        train_nodes['Seq_len'],
-                       train_nodes['BFM_coeff_seq']])
-    _, summary, loss, lr, global_step, mfccs, seq_len, bfm_coeff_seq = result
+                       train_nodes['BFM_coeff_seq'],
+                       train_nodes['Ears']])
+    _, summary, loss, lr, global_step, mfccs, seq_len, bfm_coeff_seq, ears = result
     print('Step {}: Loss= {:.3f}, Lr= {:.2e}'.format(global_step, loss, lr))
 
     if (global_step % params.summary_step == 0):

@@ -83,7 +83,7 @@ def render_texture(vertices, colors, triangles, h, w, c=3):
   return image
 
 
-def plot_bfm_coeff_seq(save_dir, facemodel, step, seq_len, real_bfm_coeff_seq, bfm_coeff_seq):
+def plot_bfm_coeff_seq(save_dir, facemodel, step, seq_len, real_bfm_coeff_seq, bfm_coeff_seq, id_coeff=None, texture_coeff=None):
   ## 9*10 block
   block_x = 10
   block_y = 9
@@ -141,7 +141,12 @@ def plot_bfm_coeff_seq(save_dir, facemodel, step, seq_len, real_bfm_coeff_seq, b
 
   big_img = np.zeros((img_size * block_y, img_size * block_x, 3), dtype=np.uint8)
   big_img = merge_seq(real_bfm_coeff_seq, big_img, time, 0)
-  bfm_coeff_seq = np.concatenate([real_bfm_coeff_seq[:, :, :80], bfm_coeff_seq[:, :, :], real_bfm_coeff_seq[:, :, 144:]], axis=2)
+
+  if(id_coeff is None or texture_coeff is None):
+    bfm_coeff_seq = np.concatenate([real_bfm_coeff_seq[:, :, :80], bfm_coeff_seq[:, :, :], real_bfm_coeff_seq[:, :, 144:]], axis=2)
+  else:
+    bfm_coeff_seq = np.concatenate([np.tile(id_coeff, (1, real_bfm_coeff_seq.shape[1], 1)), bfm_coeff_seq[:, :, :], np.tile(texture_coeff, (1, real_bfm_coeff_seq.shape[1], 1)), real_bfm_coeff_seq[:, :, 224:]], axis=2)
+
   big_img = merge_seq(bfm_coeff_seq, big_img, time, 3)
 
   cv2.imwrite('{}/bfmnet_{}.jpg'.format(save_dir, step), big_img)

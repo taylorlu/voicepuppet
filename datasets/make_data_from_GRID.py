@@ -17,6 +17,33 @@ from utils import reconstruct_mesh
 from utils import utils
 import mesh_core_cython
 from models import *
+class Loader:
+  ### root_path: None if the file_path is full path
+  def __init__(self, root_path=None):
+    self.root_path = root_path
+
+  ### load txt data, each line split by comma, default float format
+  ### file_path: file name in root_path, or full path.
+  ### return: numpy array(float32)
+  def get_text_data(self, file_path):
+    if (self.root_path):
+      file_path = os.path.join(self.root_path, file_path)
+
+    with open(file_path) as f:
+      lines = f.readlines()
+      data_list = []
+      for line in lines:
+        pts = line.strip().split(',')
+        if (len(pts) != 0):
+          pts = map(lambda x: np.float32(x), pts)
+          data_list.append(np.array(pts))
+
+    return np.array(data_list)
+class BFMCoeffLoader(Loader):
+
+  def get_data(self, file_path):
+    data = self.get_text_data(file_path)
+    return data
 
 
 class Schedule:
@@ -147,7 +174,11 @@ class Schedule:
               if c > 3:
                 image = image[:, :, :3]
 
-              _, _, img_cropped, lmk_cropped, center_x, center_y, ratio = utils.get_mxnet_sat_alignment(model_dir, image)
+              lmk_results = utils.get_mxnet_sat_alignment(model_dir, image)
+              if(lmk_results is None):
+                os.system('rm -rf {}'.format(to_crop_dir))
+                break
+              _, _, img_cropped, lmk_cropped, center_x, center_y, ratio = lmk_results
 
               labelfile.write('{}\n'.format(','.join(['{:.2f}'.format(v) for v in lmk_cropped])))
               cv2.imwrite(os.path.join(to_crop_dir, '{}.jpg'.format(idx)), img_cropped, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
@@ -237,12 +268,50 @@ class Schedule:
 
             lines = open(os.path.join(root, "landmark.txt")).readlines()
 
+            # bfmcoeff_loader = BFMCoeffLoader()
+            # bfmcoeffs = bfmcoeff_loader.get_data(os.path.join(root, "bfmcoeff.txt"))
+            # idcoeff = np.mean(bfmcoeffs[:,:80], 0)
+            # for i in range(bfmcoeffs.shape[0]):
+            #   bfmcoeffs[:,:80] = idcoeff
             bfmcoeff_file = open(os.path.join(root, "bfmcoeff.txt"), 'w')
             for i in range(count):
               xys = lines[i].split(',')
               ps = map(lambda x: float(x), xys)
               img = cv2.imread(os.path.join(root, "{}.jpg".format(i)))
               bfmcoeff, _, _ = self.get_bfm_coeff(lm3D, sess, images, coeff, img, ps)
+
+              # face_shape, face_texture, face_color, face_projection, z_buffer, landmarks_2d, translation = reconstruct_mesh.Reconstruction(
+              #     bfmcoeff, facemodel)
+
+              # shape = np.squeeze(face_shape, (0))
+              # color = np.squeeze(face_color, (0))
+              # color = np.clip(color, 0, 255).astype(np.int32)
+              # shape[:, :2] = 112 - shape[:, :2] * 112
+              # shape *=3
+
+              # ssize = 672
+              # new_image = np.zeros((ssize * ssize * 3), dtype=np.uint8)
+              # face_mask = np.zeros((ssize * ssize), dtype=np.uint8)
+
+              # vertices = shape.reshape(-1).astype(np.float32).copy()
+              # triangles = (facemodel.tri - 1).reshape(-1).astype(np.int32).copy()
+              # colors = color.reshape(-1).astype(np.float32).copy()
+              # depth_buffer = (np.zeros((ssize * ssize)) - 99999.0).astype(np.float32)
+              # mesh_core_cython.render_colors_core(new_image, face_mask, vertices, triangles, colors, depth_buffer,
+              #                                     facemodel.tri.shape[0], ssize, ssize, 3)
+              # new_image = new_image.reshape([ssize, ssize, 3])
+              # img = cv2.resize(img, (ssize, ssize))
+              # img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+              # new_image = np.concatenate((new_image, img), 1)
+
+              # new_image = cv2.cvtColor(new_image, cv2.COLOR_BGR2RGB)
+              # to_crop_dir = root.split('ccc')[0]+'zzz'+root.split('ccc')[1]
+              # utils.mkdir(to_crop_dir)
+              # if(i==0):
+              #   os.system('cp '+ os.path.join(root, "audio.wav")+' '+to_crop_dir+'/audio.wav')
+
+              # cv2.imwrite(to_crop_dir+'/{}.jpg'.format(i), new_image)
+
 
               bfmcoeff_file.write('{}\n'.format(','.join(bfmcoeff[0].astype(str))))
             bfmcoeff_file.close()
@@ -304,6 +373,7 @@ class Schedule:
               movie_file = os.path.join(root, f)
               to_crop_dir = os.path.join(to_dir, pid, movie_id)
               utils.mkdir(to_crop_dir)
+              tex_coeff = None
 
               cap = cv2.VideoCapture(movie_file)
               if (cap.isOpened()):
@@ -323,6 +393,14 @@ class Schedule:
                   ratio *= transform_params[2]
                   tx = -int(round(transform_params[3] / ratio))
                   ty = -int(round(transform_params[4] / ratio))
+
+                  # for xx in range(80, 144):
+                  #   bfmcoeff[0, xx] = 0
+                  # if(idx==0):
+                  #   tex_coeff = bfmcoeff[0, 144:224]
+                  # else:
+                  #   for xx in range(144, 224):
+                  #     bfmcoeff[0, xx] = tex_coeff[xx-144]
 
                   face_shape, face_texture, face_color, face_projection, z_buffer, landmarks_2d, translation = reconstruct_mesh.Reconstruction(
                     bfmcoeff, facemodel)
@@ -555,13 +633,14 @@ class Schedule:
               movie_file = os.path.join(root, f)
               to_crop_dir = os.path.join(to_dir, pid, movie_id)
               utils.mkdir(to_crop_dir)
+              img_size = 512
 
               cap = cv2.VideoCapture(movie_file)
               if (cap.isOpened()):
                 idx = 0
                 success, img = cap.read()
                 while (success):
-                  img = img[:, 72:72 + 576, :]
+                  # img = img[:640, 640:1280, :]
                   img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                   out = predict_mask(img)[0]
                   rgba = np.array(out)
@@ -571,7 +650,7 @@ class Schedule:
 
                   kernel = np.ones((30, 30), np.uint8)
                   mask2 = cv2.erode(alpha, kernel)
-                  kernel = np.ones((10, 10), np.uint8)
+                  kernel = np.ones((20, 20), np.uint8)
                   mask3 = cv2.dilate(alpha, kernel)
                   mask = mask3 - mask2
                   trimap = mask2 + mask // 2
@@ -590,23 +669,27 @@ class Schedule:
                     pred[trimap == 255] = 1.0
 
                   alpha = np.tile(pred[:,:,np.newaxis]*255, [1,1,3]).astype(np.uint8)
-                  alpha = cv2.resize(alpha, (256, 256))
+                  alpha = cv2.resize(alpha, (img_size, img_size))
 
-                  img = cv2.resize(img, (256, 256))
+                  img = cv2.resize(img, (img_size, img_size))
                   lmk_results = utils.get_mxnet_sat_alignment(model_dir, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
                   if (lmk_results is None):
-                    os.system('rm -rf {}'.format(to_crop_dir))
-                    break
+                    os.system('cp {}/{}.jpg {}/{}.jpg'.format(to_crop_dir, idx-1, to_crop_dir, idx))
+                    idx += 1
+                    success, img = cap.read()
+                    continue
+                  #   os.system('rm -rf {}'.format(to_crop_dir))
+                  #   break
                   img, img_landmarks, img_cropped, lmk_cropped, center_x, center_y, ratio = lmk_results
 
                   bfmcoeff, input_img, transform_params = self.get_bfm_coeff(lm3D, sess, images, coeff, img_cropped,
                                                                                      lmk_cropped)
                   face3d = render_face(center_x, center_y, ratio, bfmcoeff, img, transform_params, facemodel)
 
-                  merge_image = np.zeros((256, 768, 3), dtype=np.uint8)
-                  merge_image[:, 0:256, :] = img
-                  merge_image[:, 256:512, :] = face3d
-                  merge_image[:, 512:, :] = alpha
+                  merge_image = np.zeros((img_size, img_size*3, 3), dtype=np.uint8)
+                  merge_image[:, 0:img_size, :] = img
+                  merge_image[:, img_size:img_size*2, :] = face3d
+                  merge_image[:, img_size*2:, :] = alpha
                   cv2.imwrite('{}/{}.jpg'.format(to_crop_dir, idx), merge_image)
 
                   idx += 1

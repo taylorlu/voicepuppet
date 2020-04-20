@@ -2,7 +2,8 @@ default: &DEFAULT
   train_dataset_path: config/train.txt
   eval_dataset_path: config/eval.txt
 
-  root_path: /media/dong/5175C8D3107A9BF2/gridcorpus/todir7 # used by make_list
+  root_path: /media/dong/DiskData/gridcorpus/todir # used by make_list
+  # root_path: /media/dong/DiskData/gridcorpus/todir_vid2vid
   train_by_eval: 9  # train/eval
 
   sample_file:  # used by generator

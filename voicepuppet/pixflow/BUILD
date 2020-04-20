@@ -6,8 +6,8 @@ package(
 )
 
 py_library(
-    name = "pix2pix",
-    srcs = ["pix2pix.py"],
+    name = "pixflow",
+    srcs = ["pixflow.py"],
     deps = [
       "//config:configure",
       "//voicepuppet:builder"
@@ -15,24 +15,40 @@ py_library(
 )
 
 py_binary(
-    name = "train_pix2pix",
-    srcs = ["train_pix2pix.py"],
+    name = "train_pixflow",
+    srcs = ["train_pixflow.py"],
     deps = [
       "//utils:utils",
-      ":pix2pix",
+      ":pixflow",
       "//generator:generator",
       "//generator:loader"
     ],
 )
 
 py_binary(
-    name = "infer_pix2pix",
-    srcs = ["infer_pix2pix.py"],
+    name = "infer_pixflow",
+    srcs = ["infer_pixflow.py"],
     deps = [
       "//utils:bfm_load_data",
       "//utils:reconstruct_mesh",
       "//utils:bfm_visual",
       "//utils:utils",
+      ":pixflow",
+      "//voicepuppet/bfmnet:bfmnet",
+      "//generator:generator",
+      "//generator:loader"
+    ],
+)
+
+py_binary(
+    name = "infer_bfm_pixflow",
+    srcs = ["infer_bfm_pixflow.py"],
+    deps = [
+      "//utils:bfm_load_data",
+      "//utils:reconstruct_mesh",
+      "//utils:bfm_visual",
+      "//utils:utils",
+      ":pixflow",
       "//voicepuppet/bfmnet:bfmnet",
       "//generator:generator",
       "//generator:loader"
