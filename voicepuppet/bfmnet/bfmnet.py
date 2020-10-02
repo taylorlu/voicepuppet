@@ -6,10 +6,15 @@ import math
 import sys
 import os
 
-from voicepuppet.builder import ModelBuilder
+sys.path.append(os.path.join(os.getcwd(), 'voicepuppet'))
+sys.path.append(os.path.join(os.getcwd(), 'voicepuppet/bfmnet'))
+sys.path.append(os.path.join(os.getcwd(), 'config'))
+sys.path.append(os.path.join(os.getcwd(), 'utils'))
+
+from builder import ModelBuilder
 from tinynet import MfccNet
-from config.configure import YParams
-from utils.bfm_load_data import *
+from configure import YParams
+from bfm_load_data import *
 
 
 class MfccEncoder(ModelBuilder):
@@ -125,12 +130,12 @@ class BFMNet(ModelBuilder):
       exit(0)
 
     self.__params = BFMNet.default_hparams(config_path)
-    self.facemodel = BFM(self.__params.pretrain_dir)
-    mouth_mat = np.load(os.path.join(self.__params.pretrain_dir, 'mouth_idx.npy'))
+    self.facemodel = BFM(self.__params.model_dir)
+    mouth_mat = np.load(os.path.join(self.__params.model_dir, 'mouth_idx.npy'))
     self.mouth_mask = np.ones([35709, 3], dtype=np.float32)
     for k in range(mouth_mat.shape[0]):
       self.mouth_mask[mouth_mat[k], ...] = [10, 10, 10]
-    eyes_mat = np.load(os.path.join(self.__params.pretrain_dir, 'eyes_index.npy'))
+    eyes_mat = np.load(os.path.join(self.__params.model_dir, 'eyes_index.npy'))
     self.noeyes_mask = np.ones([35709, 3], dtype=np.float32)
     for k in range(eyes_mat.shape[0]):
       self.noeyes_mask[eyes_mat[k], ...] = [0, 0, 0]
@@ -156,7 +161,7 @@ class BFMNet(ModelBuilder):
     return self.__params
 
   def set_params(self, params):
-    self.pretrain_dir = params.pretrain_dir
+    self.model_dir = params.model_dir
     self.encode_embedding_size = params.encode_embedding_size
     self.rnn_hidden_size = params.rnn_hidden_size
     self.rnn_layers = params.rnn_layers

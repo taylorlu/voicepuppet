@@ -13,8 +13,16 @@ py_library(
 )
 
 py_binary(
-    name = "make_list",
-    srcs = ["make_list.py"],
+    name = "makelist_bfm",
+    srcs = ["makelist_bfm.py"],
+    deps = [
+    "//config:configure"
+    ],
+)
+
+py_binary(
+    name = "makelist_pixrefer",
+    srcs = ["makelist_pixrefer.py"],
     deps = [
     "//config:configure"
     ],

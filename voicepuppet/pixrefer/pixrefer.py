@@ -1,6 +1,9 @@
 import tensorflow as tf
 import numpy as np
 import os
+import sys
+sys.path.append(os.getcwd())
+
 from voicepuppet.builder import ModelBuilder
 from config.configure import YParams
 import vgg_simple as vgg

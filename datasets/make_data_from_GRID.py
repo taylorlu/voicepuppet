@@ -12,6 +12,8 @@ import shutil
 from PIL import Image
 import scipy
 
+import sys
+sys.path.append(os.getcwd())
 from utils import bfm_load_data
 from utils import reconstruct_mesh
 from utils import utils
@@ -126,6 +128,7 @@ class Schedule:
 
           src_movie_file = os.path.join(root, f)
           to_extract_dir = os.path.join(to_dir, pid, movie_id)
+          utils.mkdir(to_extract_dir)
           if (os.path.exists(os.path.join(to_extract_dir, 'audio.wav'))):
             continue
           cmd = 'ffmpeg -i {} -vn {}'.format(src_movie_file, os.path.join(to_extract_dir, 'audio.wav'))
@@ -276,7 +279,7 @@ class Schedule:
             bfmcoeff_file = open(os.path.join(root, "bfmcoeff.txt"), 'w')
             for i in range(count):
               xys = lines[i].split(',')
-              ps = map(lambda x: float(x), xys)
+              ps = list(map(lambda x: float(x), xys))
               img = cv2.imread(os.path.join(root, "{}.jpg".format(i)))
               bfmcoeff, _, _ = self.get_bfm_coeff(lm3D, sess, images, coeff, img, ps)
 

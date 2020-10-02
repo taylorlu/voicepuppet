@@ -166,8 +166,8 @@ if (__name__ == '__main__'):
   mfcc = infer_generator.extract_mfcc(pcm_slice)
   img = cv2.imread(image_file)
 
-  _, _, img_cropped, lmk_cropped, center_x, center_y, ratio = get_mxnet_sat_alignment(params.pretrain_dir, img)
-  bfmcoeff, input_img, transform_params = alignto_bfm_coeff(params.pretrain_dir, img_cropped, lmk_cropped)
+  _, _, img_cropped, lmk_cropped, center_x, center_y, ratio = get_mxnet_sat_alignment(params.model_dir, img)
+  bfmcoeff, input_img, transform_params = alignto_bfm_coeff(params.model_dir, img_cropped, lmk_cropped)
   ratio *= transform_params[2]
   tx = -int(round(transform_params[3] / ratio))
   ty = -int(round(transform_params[4] / ratio))
@@ -183,7 +183,7 @@ if (__name__ == '__main__'):
   params = bfmnet.params
   params.batch_size = batch_size
   bfmnet.set_params(params)
-  facemodel = BFM(params.pretrain_dir)
+  facemodel = BFM(params.model_dir)
 
   infer_nodes = bfmnet.build_inference_op(ears, mfcc, seq_len)
   sess.run(tf.global_variables_initializer())

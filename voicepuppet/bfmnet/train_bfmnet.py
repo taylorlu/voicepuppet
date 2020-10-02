@@ -5,11 +5,16 @@ import numpy as np
 import os
 from optparse import OptionParser
 import logging
+import sys
+
+sys.path.append(os.path.join(os.getcwd(), 'generator'))
+sys.path.append(os.path.join(os.getcwd(), 'utils'))
+
 from bfmnet import BFMNet
-from generator.generator import BFMNetDataGenerator
-from utils.bfm_load_data import *
-from utils.bfm_visual import *
-from utils.utils import *
+from generator import BFMNetDataGenerator
+from bfm_load_data import *
+from bfm_visual import *
+from utils import *
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -35,7 +40,7 @@ if (__name__ == '__main__'):
 
   os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
-  batch_size = 8
+  batch_size = 4
   ### Generator for training setting
   train_generator = BFMNetDataGenerator(config_path)
   params = train_generator.params
@@ -66,20 +71,20 @@ if (__name__ == '__main__'):
   params = bfmnet.params
   epochs = params.training['epochs']
   params.add_hparam('max_to_keep', 10)
-  params.add_hparam('save_dir', 'ckpt_bfmnet2')
+  params.add_hparam('save_dir', 'ckpt_bfmnet')
   params.add_hparam('save_name', 'bfmnet')
   params.add_hparam('save_step', 5000)
   params.add_hparam('eval_step', 1000)
-  params.add_hparam('summary_step', 1000)
-  params.add_hparam('eval_visual_dir', 'log/eval_bfmnet2')
-  params.add_hparam('summary_dir', 'log/summary_bfmnet2')
+  # params.add_hparam('summary_step', 1000)
+  params.add_hparam('eval_visual_dir', 'log/eval_bfmnet')
+  # params.add_hparam('summary_dir', 'log/summary_bfmnet')
   params.batch_size = batch_size
   bfmnet.set_params(params)
-  facemodel = BFM(params.pretrain_dir)
+  facemodel = BFM(params.model_dir)
 
   mkdir(params.save_dir)
   mkdir(params.eval_visual_dir)
-  mkdir(params.summary_dir)
+  # mkdir(params.summary_dir)
 
   train_nodes = bfmnet.build_train_op(*train_iter.get_next())
   eval_nodes = bfmnet.build_eval_op(*eval_iter.get_next())
@@ -90,24 +95,24 @@ if (__name__ == '__main__'):
     print('Restore from {}\n'.format(params.save_dir))
     tf.train.Saver().restore(sess, tf.train.latest_checkpoint(params.save_dir))
 
-  tf.summary.scalar("loss", train_nodes['Loss'])
-  tf.summary.scalar("lr", train_nodes['Lr'])
-  grads = train_nodes['Grads']
-  tvars = train_nodes['Tvars']
-  # Add histograms for gradients.
-  for i, grad in enumerate(grads):
-    if grad is not None:
-      var = tvars[i]
-      if ('BatchNorm' not in var.op.name):
-        tf.summary.histogram(var.op.name + '/gradients', grad)
+  # tf.summary.scalar("loss", train_nodes['Loss'])
+  # tf.summary.scalar("lr", train_nodes['Lr'])
+  # grads = train_nodes['Grads']
+  # tvars = train_nodes['Tvars']
+  # # Add histograms for gradients.
+  # for i, grad in enumerate(grads):
+  #   if grad is not None:
+  #     var = tvars[i]
+  #     if ('BatchNorm' not in var.op.name):
+  #       tf.summary.histogram(var.op.name + '/gradients', grad)
 
-  merge_summary_op = tf.summary.merge_all()
-  summary_writer = tf.summary.FileWriter(params.summary_dir, graph=sess.graph)
+  # merge_summary_op = tf.summary.merge_all()
+  # summary_writer = tf.summary.FileWriter(params.summary_dir, graph=sess.graph)
 
   for i in range(epochs):
     ### Run training
     result = sess.run([train_nodes['Train_op'],
-                       merge_summary_op,
+                      #  merge_summary_op,
                        train_nodes['Loss'],
                        train_nodes['Lr'],
                        train_nodes['Global_step'],
@@ -115,11 +120,11 @@ if (__name__ == '__main__'):
                        train_nodes['Seq_len'],
                        train_nodes['BFM_coeff_seq'],
                        train_nodes['Ears']])
-    _, summary, loss, lr, global_step, mfccs, seq_len, bfm_coeff_seq, ears = result
+    _, loss, lr, global_step, mfccs, seq_len, bfm_coeff_seq, ears = result
     print('Step {}: Loss= {:.3f}, Lr= {:.2e}'.format(global_step, loss, lr))
 
-    if (global_step % params.summary_step == 0):
-      summary_writer.add_summary(summary, global_step)
+    # if (global_step % params.summary_step == 0):
+    #   summary_writer.add_summary(summary, global_step)
 
     ### Run evaluation
     if (global_step % params.eval_step == 0):

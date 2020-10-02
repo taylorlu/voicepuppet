@@ -1,7 +1,6 @@
 import tensorflow as tf
 import os
 import numpy as np
-from loader import *
 import random
 from optparse import OptionParser
 import logging
@@ -10,7 +9,12 @@ import math
 import python_speech_features
 import librosa
 import subprocess
-from config.configure import YParams
+
+sys.path.append(os.path.join(os.getcwd(), 'config'))
+sys.path.append(os.path.join(os.getcwd(), 'generator'))
+
+from configure import YParams
+from loader import *
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -78,7 +82,7 @@ class DataGenerator:
   def ear_compute(self, landmarks):
     ears = []
     for ps in landmarks:
-      ps = map(lambda x: float(x), ps)
+      ps = list(map(lambda x: float(x), ps))
 
       EAR1 = float((math.sqrt((ps[74] - ps[82]) ** 2 + (ps[75] - ps[83]) ** 2) + math.sqrt(
           (ps[76] - ps[80]) ** 2 + (ps[77] - ps[81]) ** 2))) / math.sqrt(
@@ -455,7 +459,7 @@ class BFMNetDataGenerator(DataGenerator):
 
           rnd_len = 24
           intervals = librosa.effects.split(pcm, top_db=20)
-          sil_rm_start = intervals[0][0] // self.frame_wav_scale
+          sil_rm_start = int(intervals[0][0] // self.frame_wav_scale)
           pcm = pcm[intervals[0][0]:]
           bfmcoeffs = bfmcoeffs[sil_rm_start:, :]
           id_coeff = np.mean(bfmcoeffs[:, :80], 0, keepdims=True)

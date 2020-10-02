@@ -6,17 +6,22 @@ import os
 from optparse import OptionParser
 import logging
 import subprocess
+import scipy
+import random
+import sys
+
+sys.path.append(os.path.join(os.getcwd(), 'utils'))
+
 from pixrefer import PixReferNet
 from voicepuppet.bfmnet.bfmnet import BFMNet
 from generator.loader import *
 from generator.generator import DataGenerator
-from utils.bfm_load_data import *
-from utils.bfm_visual import *
-from utils.utils import *
-import scipy
-import random
+from bfm_load_data import *
+from bfm_visual import *
+from utils import *
+
 bfmcoeff_loader = BFMCoeffLoader()
-vid_bfmcoeff = bfmcoeff_loader.get_data('/media/dong/DiskData/gridcorpus/todir/bilibili/4_16/bfmcoeff.txt')
+# vid_bfmcoeff = bfmcoeff_loader.get_data('/media/dong/DiskData/gridcorpus/todir/bilibili/4_16/bfmcoeff.txt')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -45,7 +50,7 @@ def alignto_bfm_coeff(model_dir, img, xys):
     coeff = graph.get_tensor_by_name('resnet/coeff:0')
 
     with tf.Session() as sess:
-      ps = map(lambda x: int(x), xys)
+      ps = list(map(lambda x: int(x), xys))
 
       left_eye_x = int(round((ps[72] + ps[74] + ps[76] + ps[78] + ps[80] + ps[82]) / 6))
       left_eye_y = int(round((ps[73] + ps[75] + ps[77] + ps[79] + ps[81] + ps[83]) / 6))
@@ -152,7 +157,7 @@ if (__name__ == '__main__'):
   infer_generator.set_params(params)
   wav_loader = WavLoader(sr=infer_generator.sample_rate)
   pcm = wav_loader.get_data(audio_file)
-  facemodel = BFM(params.pretrain_dir)
+  facemodel = BFM(params.model_dir)
 
   pad_len = int(1 + pcm.shape[0] / infer_generator.frame_wav_scale)
   # calculate the rational length of pcm in order to keep the alignment of mfcc and landmark sequence.
@@ -164,8 +169,8 @@ if (__name__ == '__main__'):
   mfcc = infer_generator.extract_mfcc(pcm_slice)
   img_size = 512
   img = cv2.imread(image_file)[:, :512, :]
-  img, img_landmarks, img_cropped, lmk_cropped, center_x, center_y, ratio = get_mxnet_sat_alignment(params.pretrain_dir, img)
-  bfmcoeff, input_img, transform_params = alignto_bfm_coeff(params.pretrain_dir, img_cropped, lmk_cropped)
+  img, img_landmarks, img_cropped, lmk_cropped, center_x, center_y, ratio = get_mxnet_sat_alignment(params.model_dir, img)
+  bfmcoeff, input_img, transform_params = alignto_bfm_coeff(params.model_dir, img_cropped, lmk_cropped)
 
   img = cv2.cvtColor(cv2.imread(image_file), cv2.COLOR_BGR2RGB).astype(np.float32)/255.0
   face3d_refer = img[:, 512:512*2, :]
@@ -177,7 +182,7 @@ if (__name__ == '__main__'):
     ear = np.random.rand(1, pad_len, 1).astype(np.float32)/100
     ear = tf.convert_to_tensor(ear, dtype=tf.float32)
 
-    with tf.variable_scope('localization'):
+    with tf.variable_scope('bfm_scope'):
       ### BFMNet setting
       bfmnet = BFMNet(config_path)
       params = bfmnet.params
@@ -186,7 +191,7 @@ if (__name__ == '__main__'):
 
       bfmnet_nodes = bfmnet.build_inference_op(ear, mfcc, seq_len)
 
-    with tf.variable_scope('recognition'):
+    with tf.variable_scope('vid_scope'):
       ### Vid2VidNet setting
       vid2vidnet = PixReferNet(config_path)
       params = vid2vidnet.params
@@ -200,17 +205,17 @@ if (__name__ == '__main__'):
       vid2vid_nodes = vid2vidnet.build_inference_op(inputs_holder, fg_inputs_holder, targets_holder)
 
     variables_to_restore = tf.global_variables()
-    loc_varlist = {v.name[13:][:-2]: v 
-                            for v in variables_to_restore if v.name[:12]=='localization'}
-    rec_varlist = {v.name[12:][:-2]: v 
-                            for v in variables_to_restore if v.name[:11]=='recognition'}
+    bfm_varlist = {v.name[len('bfm_scope')+1:][:-2]: v 
+                            for v in variables_to_restore if v.name[:len('bfm_scope')]=='bfm_scope'}
+    vid_varlist = {v.name[len('vid_scope')+1:][:-2]: v 
+                            for v in variables_to_restore if v.name[:len('vid_scope')]=='vid_scope'}
 
-    loc_saver = tf.train.Saver(var_list=loc_varlist)
-    rec_saver = tf.train.Saver(var_list=rec_varlist)
+    bfm_saver = tf.train.Saver(var_list=bfm_varlist)
+    vid_saver = tf.train.Saver(var_list=vid_varlist)
 
     sess.run(tf.global_variables_initializer())
-    loc_saver.restore(sess, 'ckpt_bfmnet/bfmnet-65000')
-    rec_saver.restore(sess, 'ckpt_pixrefer/pixrefernet-20000')
+    bfm_saver.restore(sess, 'ckpt_bfmnet/bfmnet-65000')
+    vid_saver.restore(sess, 'ckpt_pixrefer/pixrefernet-20000')
 
     # ### Run inference
     bfm_coeff_seq = sess.run(bfmnet_nodes['BFMCoeffDecoder'])
@@ -223,19 +228,22 @@ if (__name__ == '__main__'):
     inputs[0, ..., 0:3] = face3d_refer
     fg_inputs[0, ..., 0:3] = fg_refer
 
-    for i in range(bfm_coeff_seq.shape[1]):
+    for i in range(bfm_coeff_seq.shape[1]):#
       face3d = render_face(center_x+random.randint(-0, 0), center_y+random.randint(-0, 0), ratio, bfm_coeff_seq[0, i:i + 1, ...], img, transform_params, facemodel)
       # cv2.imwrite('output/{}.jpg'.format(i), face3d)
       face3d = cv2.cvtColor(face3d, cv2.COLOR_BGR2RGB).astype(np.float32)/255.0
 
       inputs[0, ..., 3:6] = face3d
 
-      bg_img = cv2.resize(cv2.imread('background/{}.jpg'.format(i%200+1)), (img_size, img_size)).astype(np.float32)/255.0
+      bg_img = cv2.resize(cv2.imread('background/{}.jpg'.format(i%100+1)), (img_size, img_size)).astype(np.float32)/255.0
       bg_img = cv2.cvtColor(bg_img, cv2.COLOR_BGR2RGB)
       frames, last = sess.run([vid2vid_nodes['Outputs'], vid2vid_nodes['Outputs_FG']], 
         feed_dict={inputs_holder: inputs, fg_inputs_holder: fg_inputs, targets_holder: bg_img[np.newaxis, ...]})
 
       cv2.imwrite('output/{}.jpg'.format(i), cv2.cvtColor((frames[0,...]*255).astype(np.uint8), cv2.COLOR_BGR2RGB))
+
+    cmd = 'ffmpeg -i output/%d.jpg -i ' + audio_file + ' -c:v libx264 -c:a aac -strict experimental -y output.mp4'
+    subprocess.call(cmd, shell=True)
 
     # image_loader = ImageLoader()
     # for index in range(4, 195):

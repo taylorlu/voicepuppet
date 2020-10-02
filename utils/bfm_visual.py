@@ -2,7 +2,9 @@ import numpy as np
 import cv2
 from PIL import Image
 import os
+import sys
 
+sys.path.append(os.path.join(os.getcwd(), 'utils'))
 from bfm_load_data import *
 from reconstruct_mesh import *
 import mesh_core_cython

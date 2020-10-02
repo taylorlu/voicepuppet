@@ -2,7 +2,7 @@ default: &DEFAULT
   train_dataset_path: config/train.txt
   eval_dataset_path: config/eval.txt
 
-  root_path: /media/dong/DiskData/gridcorpus/todir # used by make_list
+  root_path: /media/dong/DiskData/gridcorpus/todir # used by makelist_*
   # root_path: /media/dong/DiskData/gridcorpus/todir_vid2vid
   train_by_eval: 9  # train/eval
 
@@ -11,9 +11,7 @@ default: &DEFAULT
     wav_name: audio.wav
     bfmcoeff_name: bfmcoeff.txt
 
-  mean_file: config/mean.npy
-  components_file: config/components.npy
-  pretrain_dir: /home/dong/workplace/allmodels
+  model_dir: ./allmodels
 
   mel:
     sample_rate: 16000

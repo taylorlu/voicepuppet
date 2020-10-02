@@ -24,7 +24,7 @@ class Loader:
       for line in lines:
         pts = line.strip().split(',')
         if (len(pts) != 0):
-          pts = map(lambda x: np.float32(x), pts)
+          pts = list(map(lambda x: np.float32(x), pts))
           data_list.append(np.array(pts))
 
     return np.array(data_list)

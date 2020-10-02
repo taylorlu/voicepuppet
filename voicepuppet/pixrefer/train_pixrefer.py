@@ -77,7 +77,7 @@ if (__name__ == '__main__'):
   params.batch_size = batch_size
   params.add_hparam('is_training', True)
   params.sess = sess
-  params.vgg_model_path = '../allmodels/vgg_16.ckpt'
+  params.vgg_model_path = os.path.join(params.model_dir, 'vgg_16.ckpt')
   vid2vidnet.set_params(params)
 
   mkdir(params.save_dir)
@@ -91,12 +91,12 @@ if (__name__ == '__main__'):
   init = tf.variables_initializer(var_list=init_var)
   sess.run(init)
 
-  # Restore from save_dir
-  if ('checkpoint' in os.listdir(params.save_dir)):
-    variables_to_restore = tf.trainable_variables()
-    varlist = {v.name[:-2]: v for v in variables_to_restore if v.name[:6]!='vgg_16'}
-    print(varlist)
-    tf.train.Saver(varlist).restore(sess, tf.train.latest_checkpoint(params.save_dir))
+  # # Restore from save_dir
+  # if ('checkpoint' in os.listdir(params.save_dir)):
+  #   variables_to_restore = tf.trainable_variables()
+  #   varlist = {v.name[:-2]: v for v in variables_to_restore if v.name[:6]!='vgg_16'}
+  #   print(varlist)
+  #   tf.train.Saver(varlist).restore(sess, tf.train.latest_checkpoint(params.save_dir))
 
   tf.summary.scalar("discriminator_loss", train_nodes['Discrim_loss'])
   tf.summary.scalar("generator_loss_GAN", train_nodes['Gen_loss_GAN'])
