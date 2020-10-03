@@ -109,7 +109,7 @@ the `src_dir` has the same folder structure as tip1, when finish the above step,
 #### Train BFMNet ####
 ------------
 
-1. Prepare train and eval txt, check the `root_path` parameter in `config/params.yml` is the output folder of tips1</br>
+1. Prepare train and eval txt, check the `root_path` parameter in `config/params.yml` is the output folder of [Data preparation's tip1]</br>
     `python3 datasets/makelist_bfm.py --config_path config/params.yml`
 2. train the model</br>
     `python3 voicepuppet/bfmnet/train_bfmnet.py --config_path config/params.yml`
@@ -121,7 +121,7 @@ the `src_dir` has the same folder structure as tip1, when finish the above step,
 #### Train PixReferNet ####
 ------------
 
-1. Prepare train and eval txt, check the `root_path` parameter in `config/params.yml` is the output folder of tips6</br>
+1. Prepare train and eval txt, check the `root_path` parameter in `config/params.yml` is the output folder of [Data preparation's tip6]</br>
     `python3 datasets/makelist_pixrefer.py --config_path config/params.yml`
 2. train the model</br>
     `python3 voicepuppet/pixrefer/train_pixrefer.py --config_path config/params.yml`
