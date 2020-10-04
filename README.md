@@ -25,11 +25,17 @@
 </table>
 
 
-## Run the predict pipeline ##
+## Run the prediction pipeline ##
 ------------------------
 
- 1. Download the pretrained model and required models.
-    Extract the pretrained model to ckpt and ckpt, extract the allmodels to current root dir
+ 1. Download the pretrained model and required models.</br>
+    Baidu Disk</br>
+    [ckpt.zip](https://pan.baidu.com/s/1cVIVFhSsEA1MbgqL7H7mMw), code: a6pn</br>
+    [allmodels.zip](https://pan.baidu.com/s/11FKHjGjnPtD2c7Ttg-mXng), code: brfh</br>
+    or Google Drive/br>
+    [ckpt.zip](https://drive.google.com/file/d/1RgMSQUL2pzvwCWGgnkvwxHxHeEnZ7FlN/view?usp=sharing)</br>
+    [allmodels.zip](https://drive.google.com/file/d/1Z1Pm39sp977nED_HHZtvn5glRrmiThwB/view?usp=sharing)</br>
+    Extract the `ckpt.zip` to `ckpt_bfmnet` and `ckpt_pixrefer`, extract the `allmodels.zip` to current root dir
  2. `cd utils/cython` && `python3 setup.py install`
  3. Install ffmpeg tool if you want to merge the png sequence and audio file to video container like mp4.
  4. `python3 voicepuppet/pixrefer/infer_bfmvid.py --config_path config/params.yml sample/22.jpg sample/test.aac`
@@ -38,7 +44,6 @@
 ------------------------
 
 #### Requirements ####
-------------
 
  - tensorflow>=1.14.0
  - pytorch>=1.4.0, only for data preparation (face foreground segmentation and matting)
@@ -46,7 +51,6 @@
  tips: you can use other models to do the same label marking instead, such as dlib
 
 #### Data preparation ####
-------------
 
  1. Check your `config/params.yml` to make sure the dataset folder in specified structure (same as the [grid dataset](http://spandh.dcs.shef.ac.uk/gridcorpus/), you can extend the dataset by using the same folder structure which contains common video files)
 ```
@@ -101,15 +105,14 @@
 ```
  6. Face(human foreground) segmentation and matting for PixelReferNet training. Before invoke the python shell, you should make sure the width and height of the video was in the same size(1:1). In general, 3-5 minutes video was enough for training the PixelReferNet network, the trained model will only take effect on this specified person too.</br>
     `python3 datasets/make_data_from_GRID.py --gpu 0 --step 6 src_dir to_dvp_dir ./allmodels`</br>
-the `src_dir` has the same folder structure as tip1, when finish the above step, you will find `*.jpg` in subfolders, like this
+the `src_dir` has the same folder structure as [tip1 in Data preparation], when finish the above step, you will find `*.jpg` in subfolders, like this
 <div align="center">
 <img src="https://github.com/taylorlu/voicepuppet/blob/master/sample/22.jpg">
 </div>
 
 #### Train BFMNet ####
-------------
 
-1. Prepare train and eval txt, check the `root_path` parameter in `config/params.yml` is the output folder of [Data preparation's tip1]</br>
+1. Prepare train and eval txt, check the `root_path` parameter in `config/params.yml` is the output folder of [tip1 in Data preparation]</br>
     `python3 datasets/makelist_bfm.py --config_path config/params.yml`
 2. train the model</br>
     `python3 voicepuppet/bfmnet/train_bfmnet.py --config_path config/params.yml`
@@ -119,9 +122,8 @@ the `src_dir` has the same folder structure as tip1, when finish the above step,
 </div>
 
 #### Train PixReferNet ####
-------------
 
-1. Prepare train and eval txt, check the `root_path` parameter in `config/params.yml` is the output folder of [Data preparation's tip6]</br>
+1. Prepare train and eval txt, check the `root_path` parameter in `config/params.yml` is the output folder of [tip6 in Data preparation]</br>
     `python3 datasets/makelist_pixrefer.py --config_path config/params.yml`
 2. train the model</br>
     `python3 voicepuppet/pixrefer/train_pixrefer.py --config_path config/params.yml`
