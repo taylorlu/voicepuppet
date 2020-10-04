@@ -2,6 +2,7 @@
 
 # VoicePuppet #
  - This repository provided a common pipeline to generate speaking actor by voice input automatically
+ - For a better feeling, there's a [short video](https://v.youku.com/v_show/id_XNDY0MjYzMjY3Ng==.html?) to demostrate
 
 ## The archecture of the network ##
  - Composed of 2 parts, one for predict 3D face coeffcients of each frame align to a certain stride window size of waveform, called BFMNet(basel face model network). The another for redraw the real face foreground using the rasterized face which produced by the rendered 3D face coeffcients of previous step, called PixReferNet.
