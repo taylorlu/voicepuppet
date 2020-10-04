@@ -29,12 +29,8 @@
 ------------------------
 
  1. Download the pretrained model and required models.</br>
-    Baidu Disk</br>
-    [ckpt.zip](https://pan.baidu.com/s/1cVIVFhSsEA1MbgqL7H7mMw), code: a6pn</br>
-    [allmodels.zip](https://pan.baidu.com/s/11FKHjGjnPtD2c7Ttg-mXng), code: brfh</br>
-    or Google Drive/br>
-    [ckpt.zip](https://drive.google.com/file/d/1RgMSQUL2pzvwCWGgnkvwxHxHeEnZ7FlN/view?usp=sharing)</br>
-    [allmodels.zip](https://drive.google.com/file/d/1Z1Pm39sp977nED_HHZtvn5glRrmiThwB/view?usp=sharing)</br>
+    Baidu Disk: [[ckpt.zip](https://pan.baidu.com/s/1cVIVFhSsEA1MbgqL7H7mMw), code: a6pn], [[allmodels.zip](https://pan.baidu.com/s/11FKHjGjnPtD2c7Ttg-mXng), code: brfh]</br>
+    or Google Drive: [[ckpt.zip](https://drive.google.com/file/d/1RgMSQUL2pzvwCWGgnkvwxHxHeEnZ7FlN/view?usp=sharing)], [[allmodels.zip](https://drive.google.com/file/d/1Z1Pm39sp977nED_HHZtvn5glRrmiThwB/view?usp=sharing)]</br>
     Extract the `ckpt.zip` to `ckpt_bfmnet` and `ckpt_pixrefer`, extract the `allmodels.zip` to current root dir
  2. `cd utils/cython` && `python3 setup.py install`
  3. Install ffmpeg tool if you want to merge the png sequence and audio file to video container like mp4.
